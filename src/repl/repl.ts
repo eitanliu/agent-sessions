@@ -4,6 +4,7 @@ import { buildPrompt, clearLine, renderSessionTable } from "./renderer.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
 import { pickSession } from "./session-picker.js";
 import { completeLine, getMatches } from "./completer.js";
+import { SessionView } from "./session-view.js";
 import type { SessionManager } from "../sessions/manager.js";
 import type { MessageRouter } from "../routing/router.js";
 import type { SessionForwarder } from "../routing/forwarder.js";
@@ -20,12 +21,14 @@ export class InteractiveREPL {
   private suggestionItems: { name: string; description: string; usage: string }[] = [];
   private keypressHandler: ((str: string, key: any) => void) | null = null;
   private overlayActive = false;
+  private sessionView!: SessionView;
 
   constructor(
     private manager: SessionManager,
     private router: MessageRouter,
     private forwarder: SessionForwarder,
   ) {
+    this.sessionView = new SessionView(this.manager);
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -132,19 +135,26 @@ export class InteractiveREPL {
           console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
           break;
         }
-        console.log("\n" + renderSessionTable(sessions) + "\n");
+        // 关闭建议层，暂停 keypress 监听和状态轮询
+        this.suggestionLines = 0;
+        this.suggestionItems = [];
         this.overlayActive = true;
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
         if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
+
         const chosen = await pickSession(sessions);
+        if (chosen) {
+          this.currentSessionId = chosen.id;
+          await this.sessionView.enter(chosen.id);
+        }
+
+        // 恢复
         if (this.keypressHandler) {
           process.stdin.resume();
           process.stdin.on("keypress", this.keypressHandler);
         }
+        this.startStatusPoll();
         this.overlayActive = false;
-        if (chosen) {
-          this.currentSessionId = chosen.id;
-          console.log(chalk.green(`  ✓ 已切换到 ${chosen.id}`));
-        }
         break;
       }
 
@@ -162,11 +172,44 @@ export class InteractiveREPL {
       }
 
       case "select": {
-        const id = cmd.args[0];
-        if (!id) { console.log(chalk.yellow("  用法: /select <id>")); break; }
-        if (!this.manager.getSession(id)) { console.log(chalk.red(`  找不到会话: ${id}`)); break; }
-        this.currentSessionId = id;
-        console.log(chalk.green(`  ✓ 已切换到 ${id}`));
+        const sessions = this.manager.listSessions();
+        const specifiedId = cmd.args[0];
+
+        this.suggestionLines = 0;
+        this.suggestionItems = [];
+        this.overlayActive = true;
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+        if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
+
+        if (specifiedId) {
+          if (!this.manager.getSession(specifiedId)) {
+            this.overlayActive = false;
+            this.startStatusPoll();
+            if (this.keypressHandler) {
+              process.stdin.resume();
+              process.stdin.on("keypress", this.keypressHandler);
+            }
+            console.log(chalk.red(`  找不到会话: ${specifiedId}`));
+            break;
+          }
+          this.currentSessionId = specifiedId;
+          await this.sessionView.enter(specifiedId);
+        } else if (sessions.length === 0) {
+          console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
+        } else {
+          const chosen = await pickSession(sessions);
+          if (chosen) {
+            this.currentSessionId = chosen.id;
+            await this.sessionView.enter(chosen.id);
+          }
+        }
+
+        if (this.keypressHandler) {
+          process.stdin.resume();
+          process.stdin.on("keypress", this.keypressHandler);
+        }
+        this.startStatusPoll();
+        this.overlayActive = false;
         break;
       }
 
@@ -289,6 +332,7 @@ export class InteractiveREPL {
   }
 
   private startStatusPoll(): void {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     this.pollTimer = setInterval(() => {
       for (const s of this.manager.listSessions()) {
         const prev = this.prevStatuses.get(s.id);
@@ -344,7 +388,16 @@ export class InteractiveREPL {
 
       // Tab: 接受高亮建议（填入选中命令）
       if (key.name === "tab" && this.suggestionLines > 0 && this.suggestionItems[this.suggestionIdx]) {
-        const chosen = "/" + this.suggestionItems[this.suggestionIdx].name + " ";
+        const currentLine = ((this.rl as unknown) as { line: string }).line ?? "";
+        let chosen: string;
+        if (currentLine.includes(" ")) {
+          // Case 2: 会话 ID 候选，填入 /cmd <id>
+          const parts = currentLine.slice(1).split(/\s+/);
+          chosen = "/" + parts[0] + " " + this.suggestionItems[this.suggestionIdx].name + " ";
+        } else {
+          // Case 1: 命令名候选
+          chosen = "/" + this.suggestionItems[this.suggestionIdx].name + " ";
+        }
         // 清除建议，设置输入行
         this.suggestionLines = 0;
         this.suggestionItems = [];
@@ -366,6 +419,7 @@ export class InteractiveREPL {
   private updateOverlayPrompt(currentLine: string): void {
     const base = this.buildBasePrompt();
 
+    // === Case 1: 命令名补全（输入 /xxx，不含空格）===
     if (currentLine.startsWith("/") && !currentLine.includes(" ") && currentLine.length > 0) {
       const partial = currentLine.slice(1);
       const matches = getMatches(partial);
@@ -391,7 +445,50 @@ export class InteractiveREPL {
       }
     }
 
-    // 无建议：恢复基础 prompt
+    // === Case 2: 命令后接 <id> 候选（如 "/send cl" 或 "/kill "）===
+    // 需要 <id> 的命令列表
+    const ID_COMMANDS = new Set(["send", "kill", "select", "wait", "read", "attach", "status"]);
+
+    if (currentLine.startsWith("/") && currentLine.includes(" ")) {
+      const parts = currentLine.slice(1).split(/\s+/);
+      const cmdName = parts[0].toLowerCase();
+      const idPartial = parts[1] ?? ""; // 正在输入的 id（可能为空）
+
+      if (ID_COMMANDS.has(cmdName) && parts.length <= 2) {
+        const sessions = this.manager.listSessions();
+        const candidates = idPartial
+          ? sessions.filter(s => s.id.includes(idPartial) || s.adapterId.includes(idPartial))
+          : sessions;
+
+        if (candidates.length > 0) {
+          const displayCandidates = candidates.slice(0, 6);
+          const lines = displayCandidates.map((s, i) => {
+            const sel = i === this.suggestionIdx;
+            const prefix = sel ? chalk.cyan("❯ ") : "  ";
+            const id = sel ? chalk.bold.cyan(s.id) : chalk.white(s.id);
+            const status = chalk.dim(s.status.padEnd(14));
+            const dir = chalk.dim((s.workingDir.slice(-20)));
+            return prefix + id.padEnd(sel ? 16 : 14) + status + dir;
+          });
+          const sep = chalk.dim("  " + "─".repeat(44));
+          const newPrompt = "\n" + lines.join("\n") + "\n" + sep + "\n" + base;
+          if (this.rl.getPrompt() !== newPrompt) {
+            this.rl.setPrompt(newPrompt);
+            (this.rl as any)._refreshLine?.();
+          }
+          this.suggestionLines = displayCandidates.length + 2;
+          // 注入选中的会话 ID（Tab 接受）
+          this.suggestionItems = displayCandidates.map(s => ({
+            name: s.id,
+            description: s.status,
+            usage: s.workingDir,
+          }));
+          return;
+        }
+      }
+    }
+
+    // === 无候选：恢复基础 prompt ===
     if (this.suggestionLines > 0) {
       this.suggestionLines = 0;
       this.suggestionItems = [];
