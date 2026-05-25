@@ -34,8 +34,20 @@ export class InteractiveREPL {
   }
 
   start(): void {
-    console.log(chalk.bold("\nagent-sessions") + chalk.dim(" — 多窗口 Claude 会话管理器"));
-    console.log(chalk.dim('输入 /help 查看命令，/new 新建会话\n'));
+    process.stdout.write("\x1b[2J\x1b[H"); // 清屏
+    console.log(
+      chalk.bold("agent-sessions") +
+      chalk.dim(" — 多窗口 Claude 会话管理器")
+    );
+    console.log(chalk.dim("─".repeat(48)));
+    console.log(
+      chalk.dim("  /") + chalk.white("new") + chalk.dim(" 新建会话   ") +
+      chalk.dim("  /") + chalk.white("help") + chalk.dim(" 查看命令   ") +
+      chalk.dim("  Tab") + chalk.dim(" 补全   ") +
+      chalk.dim("  Ctrl+C") + chalk.dim(" 退出")
+    );
+    console.log(chalk.dim("─".repeat(48)) + "\n");
+
     this.setupKeypressOverlay();
     this.setupRouterListener();
     this.startStatusPoll();
@@ -44,6 +56,23 @@ export class InteractiveREPL {
     this.rl.on("line", async (line) => {
       await this.handleLine(line.trim());
       this.refreshPrompt();
+    });
+
+    // Ctrl+C: 有会话时清空输入行（不退出），无会话时退出
+    this.rl.on("SIGINT", () => {
+      this.clearOverlay();
+      if (this.currentSessionId) {
+        process.stdout.write("\n");
+        console.log(chalk.yellow("  (Ctrl+C) 已清空输入。使用 /exit 退出程序。"));
+        // 清空当前 readline 输入行
+        ((this.rl as unknown) as { line: string; cursor: number }).line = "";
+        ((this.rl as unknown) as { line: string; cursor: number }).cursor = 0;
+        this.refreshPrompt();
+      } else {
+        console.log(chalk.dim("\n  再见"));
+        this.stop();
+        process.exit(0);
+      }
     });
 
     this.rl.on("close", () => { this.stop(); process.exit(0); });
