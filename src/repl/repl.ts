@@ -304,14 +304,12 @@ export class InteractiveREPL {
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
     this.keypressHandler = (str: string, key: any) => {
-      if (!key) return;
-      // 获取 readline 当前缓冲行（内部属性）
-      const line = ((this.rl as unknown) as { line: string }).line ?? "";
+      if (!key || this.overlayActive) return;
 
       // Ctrl+L: 清屏
       if (key.ctrl && key.name === "l") {
-        this.suggestionLines = 0; // 直接置 0，跳过 ANSI 上移（屏幕即将被清除）
-        process.stdout.write("\x1b[2J\x1b[H");
+        this.suggestionLines = 0;
+        process.stdout.write("[2J[H");
         this.rl.prompt(true);
         return;
       }
@@ -322,12 +320,16 @@ export class InteractiveREPL {
         return;
       }
 
-      // 建议层打开时，方向键 ↑↓ 导航
+      // 建议层打开时，方向键 ↑↓ 导航（不消费事件，让 readline 也处理）
       if (this.suggestionLines > 0) {
         if (key.name === "up") {
           this.clearOverlay();
           this.suggestionIdx = Math.max(0, this.suggestionIdx - 1);
-          this.showOverlay(line);
+          // 下一帧更新建议（readline 处理完 line buffer 更新后）
+          setImmediate(() => {
+            const l = ((this.rl as unknown) as { line: string }).line ?? "";
+            this.showOverlay(l);
+          });
           return;
         }
         if (key.name === "down") {
@@ -336,29 +338,36 @@ export class InteractiveREPL {
             this.suggestionItems.length - 1,
             this.suggestionIdx + 1,
           );
-          this.showOverlay(line);
+          setImmediate(() => {
+            const l = ((this.rl as unknown) as { line: string }).line ?? "";
+            this.showOverlay(l);
+          });
+          return;
+        }
+        // Enter/Tab: 接受当前高亮建议（由 readline 的 completer 处理）
+        if (key.name === "return" || key.name === "enter") {
+          this.clearOverlay();
           return;
         }
       }
 
-      // 实时更新：当前行以 / 开头且不含空格 → 显示/更新建议层
-      // 使用 setTimeout 确保 readline 已更新内部 line buffer
-      setTimeout(() => {
+      // 实时更新：键入后用 setImmediate 确保 readline 已更新 line buffer
+      setImmediate(() => {
         const currentLine = ((this.rl as unknown) as { line: string }).line ?? "";
-        if (currentLine.startsWith("/") && !currentLine.includes(" ")) {
+        if (currentLine.startsWith("/") && !currentLine.includes(" ") && currentLine.length > 1) {
           this.clearOverlay();
           this.suggestionIdx = 0;
           this.showOverlay(currentLine);
         } else if (this.suggestionLines > 0) {
           this.clearOverlay();
         }
-      }, 0);
+      });
     };
 
     process.stdin.on("keypress", this.keypressHandler);
   }
 
-  private showOverlay(line: string): void {
+    private showOverlay(line: string): void {
     const partial = line.startsWith("/") ? line.slice(1) : "";
     this.suggestionItems = getMatches(partial);
     if (this.suggestionItems.length === 0) return;

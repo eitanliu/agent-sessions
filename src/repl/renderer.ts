@@ -43,15 +43,20 @@ export interface SuggestionItem {
 }
 
 /**
- * 在当前行下方打印建议列表，返回打印的行数（1 空行 + items.length 行）。
- * selectedIdx 对应行用青色高亮显示。
+ * 在 prompt 行上方插入建议列表。
+ * 使用 \x1b[nL（插入 n 行）将 prompt 向下推，然后填充建议内容，光标最终回到 prompt 行。
+ * 返回插入的行数，用于 clearSuggestionLines 清除。
  */
 export function renderSuggestions(
   items: SuggestionItem[],
   selectedIdx: number,
 ): number {
   if (items.length === 0) return 0;
-  process.stdout.write("\n");
+  const n = items.length + 1; // 1 空行 + items.length 行
+  // 移到行首，插入 n 行（将 prompt 行向下推）
+  process.stdout.write(`\r\x1b[${n}L`);
+  // 光标现在在插入区域顶部，打印建议
+  process.stdout.write("\n"); // 空行缓冲
   for (let i = 0; i < items.length; i++) {
     const selected = i === selectedIdx;
     const prefix = selected ? chalk.cyan("❯ ") : "  ";
@@ -62,14 +67,14 @@ export function renderSuggestions(
     const hint = selected ? chalk.dim(`  ${items[i].usage}`) : "";
     process.stdout.write(`${prefix}${name.padEnd(selected ? 18 : 16)}${desc}${hint}\n`);
   }
-  return 1 + items.length;
+  // 不需要额外移动光标，readline 会把 prompt 重绘在当前位置
+  return n;
 }
 
 /**
- * 向上清除 n 行（擦除之前打印的建议叠加层）。
+ * 清除 prompt 上方的 n 行建议（向上移除插入的行）。
  */
 export function clearSuggestionLines(n: number): void {
-  for (let i = 0; i < n; i++) {
-    process.stdout.write("\x1b[1A\x1b[2K"); // 上移一行 + 清除行内容
-  }
+  // 移到行首，向上 n 行，删除 n 行
+  process.stdout.write(`\r\x1b[${n}A\x1b[${n}M`);
 }
