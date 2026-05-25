@@ -16,6 +16,7 @@ export class SessionView {
   constructor(private manager: SessionManager) {}
 
   async enter(sessionId: string): Promise<void> {
+    if (this.active) return;
     const session = this.manager.getSession(sessionId);
     if (!session) return;
 
@@ -171,9 +172,11 @@ export class SessionView {
   formatInputLine(input: string, status: string): string {
     const prompt = chalk.cyan("> ");
     const statusBadge = chalk.dim(`[${status}]`);
-    const available = Math.max(10, this.cols - 4 - status.length - 3);
+    // 用原始状态文本长度（不含 ANSI 码）计算对齐
+    const badgeRawLen = status.length + 2; // `[${status}]` 的原始字符数
+    const available = Math.max(10, this.cols - 4 - badgeRawLen);
     const displayInput = input.length > available ? "…" + input.slice(-(available - 1)) : input;
-    return `${prompt}${displayInput}`.padEnd(this.cols - statusBadge.length - 2) + "  " + statusBadge;
+    return `${prompt}${displayInput}`.padEnd(this.cols - badgeRawLen - 2) + "  " + statusBadge;
   }
 
   private wasRaw = false;
