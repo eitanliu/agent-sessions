@@ -36,11 +36,9 @@ describe("getMatches", () => {
     const m = getMatches("r");
     // "read" starts with "r", should appear before "unroute" which only contains "r"
     const names = m.map(d => d.name);
-    const readIdx = names.indexOf("read");
-    const unrouteIdx = names.indexOf("unroute");
-    if (readIdx !== -1 && unrouteIdx !== -1) {
-      expect(readIdx).toBeLessThan(unrouteIdx);
-    }
+    expect(names).toContain("read");
+    expect(names).toContain("unroute");
+    expect(names.indexOf("read")).toBeLessThan(names.indexOf("unroute"));
   });
 
   it("returns empty for no match", () => {

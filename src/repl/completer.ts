@@ -49,10 +49,10 @@ export function completeLine(line: string): [string[], string] {
   if (!line.startsWith("/")) return [[], line];
 
   // 命令名后有空格（进入参数部分）→ 不补全
-  const parts = line.slice(1).split(" ");
-  if (parts.length > 1) return [[], line];
+  const parts = line.slice(1).split(/\s+/).filter(Boolean);
+  if (parts.length > 1 || /\s/.test(line.slice(1))) return [[], line];
 
-  const partial = parts[0].toLowerCase();
+  const partial = (parts[0] ?? "").toLowerCase();
   const matches = getMatches(partial);
   const completions = matches.map(d => `/${d.name}`);
   return [completions, line];
