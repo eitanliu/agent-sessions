@@ -135,20 +135,30 @@ export class InteractiveREPL {
           console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
           break;
         }
-        // 关闭建议层，暂停 keypress 监听和状态轮询
         this.suggestionLines = 0;
         this.suggestionItems = [];
         this.overlayActive = true;
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
         if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
 
-        const chosen = await pickSession(sessions);
-        if (chosen) {
+        // 循环：选择器 → 视图 → 返回选择器
+        let listDone = false;
+        while (!listDone) {
+          const chosen = await pickSession(this.manager.listSessions());
+          if (!chosen) {
+            // Esc 在选择器 → 退出到主 REPL
+            listDone = true;
+            break;
+          }
           this.currentSessionId = chosen.id;
-          await this.sessionView.enter(chosen.id);
+          const result = await this.sessionView.enter(chosen.id);
+          if (result === "exit") {
+            // Ctrl+C 在视图 → 退出到主 REPL
+            listDone = true;
+          }
+          // result === "back" → 重新显示选择器
         }
 
-        // 恢复
         if (this.keypressHandler) {
           process.stdin.resume();
           process.stdin.on("keypress", this.keypressHandler);

@@ -15,10 +15,10 @@ export class SessionView {
 
   constructor(private manager: SessionManager) {}
 
-  async enter(sessionId: string): Promise<void> {
-    if (this.active) return;
+  async enter(sessionId: string): Promise<"back" | "exit"> {
+    if (this.active) return "back";
     const session = this.manager.getSession(sessionId);
-    if (!session) return;
+    if (!session) return "back";
 
     this.sessionId = sessionId;
     this.active = true;
@@ -43,12 +43,19 @@ export class SessionView {
     }, 1500);
     this.pollTimer.unref();
 
-    await new Promise<void>((resolve) => {
+    return new Promise<"back" | "exit">((resolve) => {
       this.dataHandler = (buf: Buffer) => {
         const key = buf.toString();
-        if (key === "\x1b" || key === "\x03") {
+        // Esc: 返回会话列表
+        if (key === "\x1b") {
           this.exitView();
-          resolve();
+          resolve("back");
+          return;
+        }
+        // Ctrl+C: 退出到主 REPL
+        if (key === "\x03") {
+          this.exitView();
+          resolve("exit");
           return;
         }
         if (key === "\r" || key === "\n") {
@@ -165,7 +172,7 @@ export class SessionView {
     const id = chalk.bold.cyan(sessionId.padEnd(14));
     const st = colorStatus(status as any).padEnd(24);
     const dir = chalk.dim((workingDir.length > 20 ? "..." + workingDir.slice(-17) : workingDir).padEnd(22));
-    const hint = chalk.dim("Esc 退出列表");
+    const hint = chalk.dim("Esc 返回列表  Ctrl+C 退出");
     return `  ${id}${st}${dir}  ${hint}`;
   }
 
