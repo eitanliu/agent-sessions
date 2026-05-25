@@ -59,10 +59,6 @@ function renderList(sessions: AgentSession[], idx: number): void {
 
 export async function pickSession(sessions: AgentSession[]): Promise<AgentSession | null> {
   if (sessions.length === 0) return null;
-  if (sessions.length === 1) {
-    // 只有一个会话时直接确认
-    return sessions[0];
-  }
 
   return new Promise((resolve) => {
     let idx = 0;
