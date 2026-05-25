@@ -261,8 +261,8 @@ export class InteractiveREPL {
 
       // Ctrl+L: 清屏
       if (key.ctrl && key.name === "l") {
+        this.suggestionLines = 0; // 直接置 0，跳过 ANSI 上移（屏幕即将被清除）
         process.stdout.write("\x1b[2J\x1b[H");
-        this.clearOverlay();
         this.rl.prompt(true);
         return;
       }
@@ -313,6 +313,8 @@ export class InteractiveREPL {
     const partial = line.startsWith("/") ? line.slice(1) : "";
     this.suggestionItems = getMatches(partial);
     if (this.suggestionItems.length === 0) return;
+    // clamp idx 防止导航后 items 数量变化时越界
+    this.suggestionIdx = Math.min(this.suggestionIdx, this.suggestionItems.length - 1);
     this.suggestionLines = renderSuggestions(this.suggestionItems, this.suggestionIdx);
   }
 
