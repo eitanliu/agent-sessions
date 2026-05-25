@@ -18,6 +18,7 @@ const mockExecFile = vi.mocked(
 function mockSuccess(stdout: string) {
   mockExecFile.mockImplementationOnce((_cmd, _args, _opts, cb: any) => {
     cb(null, stdout, "");
+    return {} as any;
   });
 }
 
@@ -27,6 +28,7 @@ function mockFail(stderr: string, code = 1) {
     err.stderr = stderr;
     err.code = code;
     cb(err, "", stderr);
+    return {} as any;
   });
 }
 

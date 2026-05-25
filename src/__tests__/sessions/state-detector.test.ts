@@ -23,19 +23,19 @@ describe("StateDetector.quickCheck", () => {
   });
 
   it("detects idle when pane ends with ❯", () => {
-    expect(detector.quickCheck("some output\n❯").status).toBe("idle");
+    expect(detector.quickCheck("some output\n❯")!.status).toBe("idle");
   });
 
   it("detects active with spinner char", () => {
-    expect(detector.quickCheck("⠙ Thinking...").status).toBe("active");
+    expect(detector.quickCheck("⠙ Thinking...")!.status).toBe("active");
   });
 
   it("detects waitingInput with y/n prompt", () => {
-    expect(detector.quickCheck("Allow access? (y/n)").status).toBe("waiting_input");
+    expect(detector.quickCheck("Allow access? (y/n)")!.status).toBe("waiting_input");
   });
 
   it("detects error with 'Error:' prefix", () => {
-    expect(detector.quickCheck("Error: something went wrong").status).toBe("error");
+    expect(detector.quickCheck("Error: something went wrong")!.status).toBe("error");
   });
 
   it("returns null for unknown content", () => {
@@ -43,7 +43,7 @@ describe("StateDetector.quickCheck", () => {
   });
 
   it("error takes priority over active", () => {
-    expect(detector.quickCheck("⠙ Running\nError: failed").status).toBe("error");
+    expect(detector.quickCheck("⠙ Running\nError: failed")!.status).toBe("error");
   });
 });
 
