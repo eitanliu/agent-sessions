@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>agent-sessions 控制台</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+header { background: #111; padding: 10px 16px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+header h1 { font-size: 14px; color: #7ec8e3; }
+#conn-status { font-size: 12px; color: #666; }
+#conn-status.connected { color: #4caf50; }
+main { flex: 1; display: grid; grid-template-columns: 280px 1fr; overflow: hidden; min-height: 0; }
+#sessions { border-right: 1px solid #333; overflow-y: auto; padding: 8px; }
+.session-card { background: #222; border: 1px solid #333; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; transition: border-color .15s; }
+.session-card:hover, .session-card.active { border-color: #7ec8e3; }
+.session-card .sid { font-size: 12px; font-weight: bold; color: #7ec8e3; }
+.session-card .stat { font-size: 11px; margin-top: 2px; }
+.stat-idle { color: #4caf50; } .stat-active { color: #ff9800; } .stat-error { color: #f44336; }
+.stat-launching { color: #9e9e9e; } .stat-waiting_input { color: #ce93d8; } .stat-dead { color: #555; }
+#panel { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+#output { flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; min-height: 0; }
+#output .ts { color: #555; font-size: 11px; }
+#input-area { border-top: 1px solid #333; display: flex; padding: 8px; gap: 8px; background: #111; flex-shrink: 0; }
+#msg { flex: 1; background: #222; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 6px 10px; font-family: monospace; font-size: 13px; outline: none; }
+#msg:focus { border-color: #7ec8e3; }
+#send-btn { background: #7ec8e3; color: #111; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: bold; white-space: nowrap; }
+#send-btn:hover:not(:disabled) { background: #a8d8ea; }
+#send-btn:disabled, #msg:disabled { opacity: 0.4; cursor: not-allowed; }
+#empty { color: #555; text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⬡ agent-sessions</h1>
+  <span id="conn-status">● 连接中...</span>
+  <span style="margin-left:auto;font-size:11px;color:#555" id="session-label"></span>
+</header>
+<main>
+  <div id="sessions"><div style="color:#555;padding:16px;font-size:12px">正在加载会话...</div></div>
+  <div id="panel">
+    <div id="output"><div id="empty">← 从左侧选择一个会话</div></div>
+    <div id="input-area">
+      <input id="msg" type="text" placeholder="输入消息发送到当前会话（Enter 发送）..." disabled>
+      <button id="send-btn" disabled>发送</button>
+    </div>
+  </div>
+</main>
+<script>
+var ws, sessions = {}, currentId = null, outputLog = {};
+var statusEl = document.getElementById('conn-status');
+var sessionsEl = document.getElementById('sessions');
+var outputEl = document.getElementById('output');
+var msgEl = document.getElementById('msg');
+var sendBtn = document.getElementById('send-btn');
+var labelEl = document.getElementById('session-label');
+
+function connect() {
+  ws = new WebSocket('ws://' + location.host);
+  ws.onopen = function() { statusEl.textContent = '● 已连接'; statusEl.className = 'connected'; };
+  ws.onclose = function() { statusEl.textContent = '● 已断开（3s 后重连）'; statusEl.className = ''; setTimeout(connect, 3000); };
+  ws.onmessage = function(e) {
+    var msg = JSON.parse(e.data);
+    if (msg.type === 'init') {
+      sessions = {};
+      msg.sessions.forEach(function(s) { sessions[s.id] = s; if (!outputLog[s.id]) outputLog[s.id] = []; });
+      renderSessions();
+    } else if (msg.type === 'session_status') {
+      if (sessions[msg.sessionId]) { sessions[msg.sessionId].status = msg.newStatus; renderSessions(); }
+    } else if (msg.type === 'session_output') {
+      if (!outputLog[msg.sessionId]) outputLog[msg.sessionId] = [];
+      outputLog[msg.sessionId].push({ ts: new Date().toLocaleTimeString(), content: msg.content });
+      if (msg.sessionId === currentId) renderOutput(msg.sessionId);
+    } else if (msg.type === 'route_message') {
+      appendGlobal('[ROUTE ' + msg.from + ' → ' + msg.to + ']: ' + (msg.content||'').slice(0, 80));
+    }
+  };
+}
+
+function renderSessions() {
+  sessionsEl.innerHTML = '';
+  var ids = Object.keys(sessions);
+  if (ids.length === 0) { sessionsEl.innerHTML = '<div style="color:#555;padding:16px;font-size:12px">暂无会话</div>'; return; }
+  ids.forEach(function(id) {
+    var s = sessions[id];
+    var el = document.createElement('div');
+    el.className = 'session-card' + (id === currentId ? ' active' : '');
+    el.innerHTML = '<div class="sid">' + esc(s.id) + '</div>' +
+      '<div class="stat stat-' + s.status + '">' + s.status + '</div>' +
+      '<div style="font-size:11px;color:#555;margin-top:2px">' + esc((s.workingDir||'').slice(-30)) + '</div>';
+    el.onclick = function() { selectSession(id, el); };
+    sessionsEl.appendChild(el);
+  });
+}
+
+function selectSession(id, el) {
+  currentId = id;
+  msgEl.disabled = false; sendBtn.disabled = false;
+  document.querySelectorAll('.session-card').forEach(function(c) { c.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  labelEl.textContent = id;
+  renderOutput(id);
+  msgEl.focus();
+}
+
+function renderOutput(id) {
+  var logs = outputLog[id] || [];
+  if (logs.length === 0) { outputEl.innerHTML = '<div id="empty" style="color:#555;padding:20px">（暂无输出）</div>'; return; }
+  outputEl.innerHTML = logs.map(function(e) {
+    return '<div><span class="ts">[' + e.ts + '] </span>' + esc(e.content) + '</div>';
+  }).join('');
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+function appendGlobal(text) {
+  var div = document.createElement('div');
+  div.style.color = '#7ec8e3';
+  div.textContent = text;
+  var empty = document.getElementById('empty');
+  if (empty) empty.remove();
+  outputEl.appendChild(div);
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function sendMsg() {
+  var prompt = msgEl.value.trim();
+  if (!prompt || !currentId) return;
+  msgEl.value = '';
+  var div = document.createElement('div');
+  div.style.color = '#7ec8e3';
+  div.textContent = '> ' + prompt;
+  var empty = document.getElementById('empty');
+  if (empty) empty.remove();
+  outputEl.appendChild(div);
+  outputEl.scrollTop = outputEl.scrollHeight;
+  try {
+    await fetch('/api/sessions/' + currentId + '/send', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ prompt: prompt })
+    });
+  } catch(e) {
+    var err = document.createElement('div');
+    err.style.color = '#f44336';
+    err.textContent = '发送失败: ' + e.message;
+    outputEl.appendChild(err);
+  }
+}
+
+sendBtn.onclick = sendMsg;
+msgEl.onkeydown = function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
+connect();
+</script>
+</body>
+</html>
