@@ -1,8 +1,8 @@
 import * as readline from "node:readline";
 import chalk from "chalk";
-import { buildPrompt, clearLine, renderSessionTable } from "./renderer.js";
+import { buildPrompt, clearLine, renderSessionTable, renderSuggestions, clearSuggestionLines, type SuggestionItem } from "./renderer.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
-import { completeLine } from "./completer.js";
+import { completeLine, getMatches } from "./completer.js";
 import type { SessionManager } from "../sessions/manager.js";
 import type { MessageRouter } from "../routing/router.js";
 import type { SessionForwarder } from "../routing/forwarder.js";
@@ -14,6 +14,10 @@ export class InteractiveREPL {
   private currentSessionId: string | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private prevStatuses = new Map<string, string>();
+  private suggestionLines = 0;
+  private suggestionIdx = 0;
+  private suggestionItems: SuggestionItem[] = [];
+  private keypressHandler: ((str: string, key: any) => void) | null = null;
 
   constructor(
     private manager: SessionManager,
@@ -32,6 +36,7 @@ export class InteractiveREPL {
   start(): void {
     console.log(chalk.bold("\nagent-sessions") + chalk.dim(" — 多窗口 Claude 会话管理器"));
     console.log(chalk.dim('输入 /help 查看命令，/new 新建会话\n'));
+    this.setupKeypressOverlay();
     this.setupRouterListener();
     this.startStatusPoll();
     this.refreshPrompt();
@@ -45,6 +50,11 @@ export class InteractiveREPL {
   }
 
   stop(): void {
+    if (this.keypressHandler) {
+      process.stdin.removeListener("keypress", this.keypressHandler);
+      this.keypressHandler = null;
+    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     this.rl.close();
   }
@@ -58,6 +68,7 @@ export class InteractiveREPL {
   }
 
   private async handleLine(input: string): Promise<void> {
+    this.clearOverlay();
     if (!input) return;
     if (input.startsWith("/")) {
       await this.handleCommand(input);
@@ -237,5 +248,78 @@ export class InteractiveREPL {
       }
     }, STATUS_POLL_MS);
     this.pollTimer.unref();
+  }
+
+  private setupKeypressOverlay(): void {
+    readline.emitKeypressEvents(process.stdin, this.rl);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+    this.keypressHandler = (str: string, key: any) => {
+      if (!key) return;
+      // 获取 readline 当前缓冲行（内部属性）
+      const line = ((this.rl as unknown) as { line: string }).line ?? "";
+
+      // Ctrl+L: 清屏
+      if (key.ctrl && key.name === "l") {
+        process.stdout.write("\x1b[2J\x1b[H");
+        this.clearOverlay();
+        this.rl.prompt(true);
+        return;
+      }
+
+      // Esc: 关闭建议叠加层
+      if (key.name === "escape" && !key.ctrl) {
+        this.clearOverlay();
+        return;
+      }
+
+      // 建议层打开时，方向键 ↑↓ 导航
+      if (this.suggestionLines > 0) {
+        if (key.name === "up") {
+          this.clearOverlay();
+          this.suggestionIdx = Math.max(0, this.suggestionIdx - 1);
+          this.showOverlay(line);
+          return;
+        }
+        if (key.name === "down") {
+          this.clearOverlay();
+          this.suggestionIdx = Math.min(
+            this.suggestionItems.length - 1,
+            this.suggestionIdx + 1,
+          );
+          this.showOverlay(line);
+          return;
+        }
+      }
+
+      // 实时更新：当前行以 / 开头且不含空格 → 显示/更新建议层
+      // 使用 setTimeout 确保 readline 已更新内部 line buffer
+      setTimeout(() => {
+        const currentLine = ((this.rl as unknown) as { line: string }).line ?? "";
+        if (currentLine.startsWith("/") && !currentLine.includes(" ")) {
+          this.clearOverlay();
+          this.suggestionIdx = 0;
+          this.showOverlay(currentLine);
+        } else if (this.suggestionLines > 0) {
+          this.clearOverlay();
+        }
+      }, 0);
+    };
+
+    process.stdin.on("keypress", this.keypressHandler);
+  }
+
+  private showOverlay(line: string): void {
+    const partial = line.startsWith("/") ? line.slice(1) : "";
+    this.suggestionItems = getMatches(partial);
+    if (this.suggestionItems.length === 0) return;
+    this.suggestionLines = renderSuggestions(this.suggestionItems, this.suggestionIdx);
+  }
+
+  private clearOverlay(): void {
+    if (this.suggestionLines > 0) {
+      clearSuggestionLines(this.suggestionLines);
+      this.suggestionLines = 0;
+    }
   }
 }
