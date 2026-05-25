@@ -3,7 +3,7 @@ import type { AgentAdapter, AgentAdapterId, AgentPatterns, LaunchConfig } from "
 import { TmuxBridge as TmuxBridgeClass } from "../../tmux/bridge.js";
 import { CLAUDE_PATTERNS } from "./patterns.js";
 
-const INIT_WAIT_MS = 10_000;
+const INIT_WAIT_MS = 3_000;
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id: AgentAdapterId = "claude";

@@ -169,12 +169,37 @@ export class InteractiveREPL {
       case "new": {
         const workingDir = cmd.args[0] ?? process.cwd();
         console.log(chalk.dim(`  正在启动 Claude 会话（${workingDir}）...`));
+        let newSessionId: string | null = null;
         try {
           const s = await this.manager.createSession({ adapterId: "claude", workingDir });
           this.currentSessionId = s.id;
-          console.log(chalk.green(`  ✓ 已启动 ${s.id}`));
+          newSessionId = s.id;
+          console.log(chalk.green(`  ✓ 已启动 ${s.id}，正在进入交互视图...`));
         } catch (e: any) {
           console.log(chalk.red(`  ✗ 启动失败: ${e.message}`));
+        }
+        // 启动成功后自动进入会话视图
+        if (newSessionId) {
+          this.overlayActive = true;
+          if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+          if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
+          while (true) {
+            const result = await this.sessionView.enter(newSessionId);
+            if (result === "exit") break;
+            // result === "back" → 进选择器让用户选择其他会话
+            const sessions = this.manager.listSessions();
+            if (sessions.length === 0) break;
+            const chosen = await pickSession(sessions);
+            if (!chosen) break;
+            this.currentSessionId = chosen.id;
+            newSessionId = chosen.id;
+          }
+          if (this.keypressHandler) {
+            process.stdin.resume();
+            process.stdin.on("keypress", this.keypressHandler);
+          }
+          this.startStatusPoll();
+          this.overlayActive = false;
         }
         break;
       }
