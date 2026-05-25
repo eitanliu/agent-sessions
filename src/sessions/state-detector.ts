@@ -47,8 +47,11 @@ export class StateDetector {
     const start = Date.now();
     let lastHash = opts.preHash;
     let lastChangeTime = Date.now();
-    let lastContent = "";
     let phase: 1 | 2 = 1;
+
+    // 捕获初始内容，修复 timeout 时 lastContent 为空的问题
+    const initialCapture = await this.bridge.capturePane(paneTarget, { startLine: -this.config.captureLines });
+    let lastContent = initialCapture.content;
 
     while (true) {
       if (Date.now() - start >= timeoutMs) {
