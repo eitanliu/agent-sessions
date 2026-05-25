@@ -59,7 +59,7 @@ describe("ClaudeAdapter", () => {
     expect(bridge.createSession).toHaveBeenCalledWith(
       "as-claude-0",
       expect.objectContaining({
-        command: expect.arrayContaining(["bash", "-c"]),
+        command: expect.stringContaining("bash -c"),
       }),
     );
     expect(paneTarget).toBe("as-claude-0:0.0");

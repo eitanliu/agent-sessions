@@ -22,11 +22,18 @@ export class ClaudeAdapter implements AgentAdapter {
     if (!(await bridge.hasSession(sessionName))) {
       const posixCwd = toPosixPath(workingDir);
       const claudeParts = [claudeCmd, ...claudeArgs].join(" ");
-      // 用 ["bash", "-c", "..."] 数组方式传给 tmux，避免单字符串被 tmux 再套一层 shell 解析
-      // 设置 TERM=xterm-256color 确保 Claude Code CLI 使用 Unicode 字符（不降级为 _）
-      const bashScript = `export TERM=xterm-256color; cd '${posixCwd}' && exec ${claudeParts}`;
+      // 覆盖 $HOME：MSYS2 里 HOME=/home/eitanliu，Node.js 版 Claude Code CLI 读取后
+      // 将其解析为 MSYS2 home 目录作为默认工作区。强制设为 Windows 用户目录即可修复。
+      const posixUserProfile = toPosixPath(process.env.USERPROFILE ?? "");
+      const bashScript = [
+        `export HOME='${posixUserProfile}'`,
+        `export TERM=xterm-256color`,
+        `cd '${posixCwd}'`,
+        `exec ${claudeParts}`,
+      ].join(" && ");
+      // 作为单个字符串传给 tmux，避免 tmux 把 bash 的 -c 误解为自己的 -c start-directory
       await bridge.createSession(sessionName, {
-        command: ["bash", "-c", bashScript],
+        command: `bash -c "${bashScript.replace(/"/g, '\\"')}"`,
       });
     }
 
