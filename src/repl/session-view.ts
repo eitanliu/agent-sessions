@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import type { Interface as ReadlineInterface } from "node:readline";
 import type { SessionManager } from "../sessions/manager.js";
 import { colorStatus } from "./renderer.js";
 
@@ -12,10 +13,11 @@ export class SessionView {
   private maxOutputLines = MAX_OUTPUT_LINES;
   private dataHandler: ((buf: Buffer) => void) | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private rl: ReadlineInterface | null = null;
 
   constructor(private manager: SessionManager) {}
 
-  async enter(sessionId: string): Promise<"back" | "exit"> {
+  async enter(sessionId: string, rl?: ReadlineInterface): Promise<"back" | "exit"> {
     if (this.active) return "back";
     const session = this.manager.getSession(sessionId);
     if (!session) return "back";
@@ -24,6 +26,10 @@ export class SessionView {
     this.active = true;
     this.inputBuf = "";
     this.outputLines = [];
+
+    // 暂停 readline，避免与 raw stdin 争抢输入
+    rl?.pause();
+    this.rl = rl ?? null;
 
     try {
       const existing = await this.manager.readOutput(sessionId, 100);
@@ -119,6 +125,11 @@ export class SessionView {
     }
     this.teardownLayout();
     this.exitRawMode();
+    // 恢复 readline 输入处理
+    if (this.rl) {
+      this.rl.resume();
+      this.rl = null;
+    }
   }
 
   private get rows(): number { return process.stdout.rows ?? 24; }
