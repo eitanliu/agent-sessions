@@ -55,7 +55,13 @@ describe("ClaudeAdapter", () => {
     });
     await vi.runAllTimersAsync();
     const paneTarget = await launchPromise;
-    expect(bridge.createSession).toHaveBeenCalledWith("as-claude-0", { cwd: "/tmp" });
+    // 现在用 bash -c "cd DIR && exec CLAUDE" 方式启动，command 包含目录和 claude 路径
+    expect(bridge.createSession).toHaveBeenCalledWith(
+      "as-claude-0",
+      expect.objectContaining({
+        command: expect.arrayContaining(["bash", "-c"]),
+      }),
+    );
     expect(paneTarget).toBe("as-claude-0:0.0");
   });
 

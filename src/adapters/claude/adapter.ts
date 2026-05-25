@@ -1,9 +1,10 @@
+import { existsSync } from "node:fs";
 import type { TmuxBridge } from "../../tmux/bridge.js";
 import type { AgentAdapter, AgentAdapterId, AgentPatterns, LaunchConfig } from "../base.js";
 import { TmuxBridge as TmuxBridgeClass } from "../../tmux/bridge.js";
 import { CLAUDE_PATTERNS } from "./patterns.js";
 
-const INIT_WAIT_MS = 3_000;
+const INIT_WAIT_MS = 0; // 立即 attach，让用户从头看到 Claude 启动
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id: AgentAdapterId = "claude";
@@ -11,26 +12,25 @@ export class ClaudeAdapter implements AgentAdapter {
 
   async launch(bridge: TmuxBridge, config: LaunchConfig): Promise<string> {
     const { sessionName, workingDir, bypassPermissions, resumeSessionId } = config;
+
+    // 解析 claude 可执行文件路径
+    const claudeCmd = resolveClaudeCommand();
+    const claudeArgs: string[] = [];
+    if (config.resumeSessionId) claudeArgs.push("--resume", config.resumeSessionId);
+    if (config.bypassPermissions) claudeArgs.push("--dangerously-skip-permissions");
+
     if (!(await bridge.hasSession(sessionName))) {
-      await bridge.createSession(sessionName, { cwd: workingDir });
+      const posixCwd = toPosixPath(workingDir);
+      const claudeParts = [claudeCmd, ...claudeArgs].join(" ");
+      // 用 ["bash", "-c", "..."] 数组方式传给 tmux，避免单字符串被 tmux 再套一层 shell 解析
+      // 设置 TERM=xterm-256color 确保 Claude Code CLI 使用 Unicode 字符（不降级为 _）
+      const bashScript = `export TERM=xterm-256color; cd '${posixCwd}' && exec ${claudeParts}`;
+      await bridge.createSession(sessionName, {
+        command: ["bash", "-c", bashScript],
+      });
     }
+
     const paneTarget = TmuxBridgeClass.target(sessionName, 0, 0);
-    // Windows/MSYS2：通过 USERPROFILE 系统环境变量定位 claude.exe
-    if (process.platform === "win32") {
-      const userProfile = process.env.USERPROFILE ?? "";
-      // 将 Windows 路径（C:\Users\name）转为 MSYS2 POSIX 路径（/c/Users/name）
-      const posixHome = userProfile
-        .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
-        .replace(/\\/g, "/");
-      await bridge.runInPane(paneTarget, `export PATH="${posixHome}/.local/bin:$PATH"`);
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    const parts: string[] = ["claude"];
-    if (resumeSessionId) parts.push("--resume", resumeSessionId);
-    if (bypassPermissions) parts.push("--dangerously-skip-permissions");
-    await bridge.sendText(paneTarget, parts.join(" "));
-    await new Promise((r) => setTimeout(r, 200));
-    await bridge.sendEnter(paneTarget);
     await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
     return paneTarget;
   }
@@ -62,11 +62,39 @@ export class ClaudeAdapter implements AgentAdapter {
   async shutdown(bridge: TmuxBridge, paneTarget: string): Promise<void> {
     await bridge.sendText(paneTarget, "/exit");
     await bridge.sendEnter(paneTarget);
-    // 等待 claude 退出完成，避免 killSession 时还有进程残留
     await new Promise((r) => setTimeout(r, 500));
   }
 
   getPatterns(): AgentPatterns {
     return CLAUDE_PATTERNS;
   }
+}
+
+/**
+ * 解析 claude 可执行文件路径：
+ * - Windows：若 %USERPROFILE%\.local\bin\claude.exe 存在，返回绝对 POSIX 路径
+ * - 否则返回 "claude"，依赖 PATH
+ */
+function resolveClaudeCommand(): string {
+  if (process.platform !== "win32") return "claude";
+
+  const userProfile = process.env.USERPROFILE ?? "";
+  const winExe = `${userProfile}\\.local\\bin\\claude.exe`;
+
+  if (existsSync(winExe)) {
+    const posixHome = userProfile
+      .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+      .replace(/\\/g, "/");
+    return `${posixHome}/.local/bin/claude`;
+  }
+
+  return "claude";
+}
+
+/** 将路径转为 POSIX 格式（Windows: D:\foo 或 D:/foo → /d/foo） */
+function toPosixPath(p: string): string {
+  if (process.platform !== "win32") return p;
+  return p
+    .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+    .replace(/\\/g, "/");
 }

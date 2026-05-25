@@ -37,9 +37,22 @@ export class TmuxBridge {
     return t;
   }
 
-  async createSession(name: string, opts?: { cwd?: string }): Promise<void> {
+  async createSession(name: string, opts?: { cwd?: string; env?: Record<string, string>; command?: string | string[] }): Promise<void> {
     const args = ["new-session", "-d", "-s", name];
     if (opts?.cwd) args.push("-c", opts.cwd);
+    if (opts?.env) {
+      for (const [key, value] of Object.entries(opts.env)) {
+        args.push("-e", `${key}=${value}`);
+      }
+    }
+    // 支持字符串（单词）或数组（多词命令，如 ["bash", "-c", "..."]）
+    if (opts?.command) {
+      if (Array.isArray(opts.command)) {
+        args.push(...opts.command);
+      } else {
+        args.push(opts.command);
+      }
+    }
     await this.exec(args);
   }
 

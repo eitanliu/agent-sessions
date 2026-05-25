@@ -22,18 +22,16 @@ export class SessionView {
     ]);
     spawnSync("tmux", ["set-option", "-t", session.tmuxSession, "status", "on"]);
 
-    // 暂停 readline，让 tmux attach 完全接管终端
+    // 暂停 readline 的输入处理，让 tmux 独占 stdin
+    // 注意：不调用 setRawMode(false)，tmux attach 自己管理终端模式
     rl?.pause();
-    if (process.stdin.isTTY) process.stdin.setRawMode(false);
 
     // 阻塞等待：tmux attach 接管整个终端，用户直接与 Claude 交互
     const result = spawnSync("tmux", ["attach-session", "-t", session.tmuxSession], {
       stdio: "inherit",
     });
 
-    // 恢复终端
-    process.stdout.write("\x1b[2J\x1b[H");
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    // detach 后恢复 readline（tmux 已将终端模式恢复原状）
     rl?.resume();
 
     // tmux 异常退出（如 session 不存在）返回 exit，正常 detach 返回 back

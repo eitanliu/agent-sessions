@@ -167,7 +167,9 @@ export class InteractiveREPL {
       }
 
       case "new": {
-        const workingDir = cmd.args[0] ?? process.cwd();
+        // 将当前目录转为 POSIX 路径（tmux -c 需要 POSIX 格式，不识别 Windows 路径）
+        const rawDir = cmd.args[0] ?? process.cwd();
+        const workingDir = toPosixPath(rawDir);
         console.log(chalk.dim(`  正在启动 Claude 会话（${workingDir}）...`));
         let newSessionId: string | null = null;
         try {
@@ -580,5 +582,13 @@ export class InteractiveREPL {
     (this.rl as any)._refreshLine?.();
   }
 
+}
+
+/** 将路径转为 tmux 可识别的 POSIX 格式（Windows: D:\foo → /d/foo） */
+function toPosixPath(p: string): string {
+  if (process.platform !== "win32") return p;
+  return p
+    .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+    .replace(/\\/g, "/");
 }
 
