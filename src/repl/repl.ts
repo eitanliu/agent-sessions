@@ -2,6 +2,7 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { buildPrompt, clearLine, renderSessionTable } from "./renderer.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
+import { completeLine } from "./completer.js";
 import type { SessionManager } from "../sessions/manager.js";
 import type { MessageRouter } from "../routing/router.js";
 import type { SessionForwarder } from "../routing/forwarder.js";
@@ -24,6 +25,7 @@ export class InteractiveREPL {
       output: process.stdout,
       prompt: buildPrompt(undefined),
       terminal: true,
+      completer: (line: string) => completeLine(line),
     });
   }
 
