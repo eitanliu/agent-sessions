@@ -1,0 +1,28 @@
+# Node.js
+node_modules/
+dist/
+*.js.map
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Temp files
+tmp/
+*.tmp
