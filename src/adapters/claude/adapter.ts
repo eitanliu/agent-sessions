@@ -15,6 +15,13 @@ export class ClaudeAdapter implements AgentAdapter {
       await bridge.createSession(sessionName, { cwd: workingDir });
     }
     const paneTarget = TmuxBridgeClass.target(sessionName, 0, 0);
+    // Windows/MSYS2：claude.exe 在 ~/.local/bin，需先设置 PATH
+    if (process.platform === "win32") {
+      const pathSetup =
+        'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
+      await bridge.runInPane(paneTarget, pathSetup);
+      await new Promise((r) => setTimeout(r, 500));
+    }
     const parts: string[] = ["claude"];
     if (resumeSessionId) parts.push("--resume", resumeSessionId);
     if (bypassPermissions) parts.push("--dangerously-skip-permissions");
@@ -52,7 +59,8 @@ export class ClaudeAdapter implements AgentAdapter {
   async shutdown(bridge: TmuxBridge, paneTarget: string): Promise<void> {
     await bridge.sendText(paneTarget, "/exit");
     await bridge.sendEnter(paneTarget);
-    await new Promise((r) => setTimeout(r, 1_000));
+    // 等待 claude 退出完成，避免 killSession 时还有进程残留
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   getPatterns(): AgentPatterns {

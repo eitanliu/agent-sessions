@@ -12,6 +12,7 @@ vi.mock("../../../tmux/bridge.js", () => {
     sendCtrlC: vi.fn(),
     sendEscape: vi.fn(),
     capturePane: vi.fn(),
+    runInPane: vi.fn(),
   };
   const MockTmuxBridge = vi.fn(() => mockBridgeInstance);
   // 保留静态方法
@@ -40,9 +41,7 @@ describe("ClaudeAdapter", () => {
     vi.mocked(bridge.sendEnter).mockResolvedValue(undefined);
     vi.mocked(bridge.sendKeys).mockResolvedValue(undefined);
     vi.mocked(bridge.sendCtrlC).mockResolvedValue(undefined);
-    vi.mocked(bridge.capturePane).mockResolvedValue({
-      content: "❯", lines: ["❯"], timestamp: Date.now(),
-    });
+    vi.mocked(bridge.runInPane).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -96,5 +95,16 @@ describe("ClaudeAdapter", () => {
     const patterns = adapter.getPatterns();
     expect(patterns.idle.length).toBeGreaterThan(0);
     expect(patterns.idle[0].test("❯")).toBe(true);
+  });
+
+  it("sendResponse('Enter') calls sendEnter", async () => {
+    await adapter.sendResponse(bridge, "as-claude-0:0.0", "Enter");
+    expect(bridge.sendEnter).toHaveBeenCalledWith("as-claude-0:0.0");
+  });
+
+  it("sendResponse('y') sends y then enter", async () => {
+    await adapter.sendResponse(bridge, "as-claude-0:0.0", "y");
+    expect(bridge.sendKeys).toHaveBeenCalledWith("as-claude-0:0.0", "y");
+    expect(bridge.sendEnter).toHaveBeenCalled();
   });
 });
