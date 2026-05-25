@@ -36,14 +36,20 @@ export class SessionManager extends EventEmitter {
       lastOutput: "",
     };
     this.sessions.set(id, session);
-    this.emit("status_change", id, "launching", "launching");
 
-    const paneTarget = await adapter.launch(this.bridge, {
-      sessionName: tmuxSession,
-      workingDir: config.workingDir,
-      bypassPermissions: config.bypassPermissions,
-      resumeSessionId: config.resumeSessionId,
-    });
+    let paneTarget: string;
+    try {
+      paneTarget = await adapter.launch(this.bridge, {
+        sessionName: tmuxSession,
+        workingDir: config.workingDir,
+        bypassPermissions: config.bypassPermissions,
+        resumeSessionId: config.resumeSessionId,
+      });
+    } catch (err) {
+      this.sessions.delete(id);
+      this.counters.set(config.adapterId, count); // 回滚计数器
+      throw err;
+    }
 
     session.paneTarget = paneTarget;
     this.updateStatus(session, "idle");
@@ -63,7 +69,8 @@ export class SessionManager extends EventEmitter {
 
   async sendAndWait(sessionId: string, prompt: string, timeoutMs = 120_000): Promise<string> {
     const session = this.requireSession(sessionId);
-    const detector = this.detectors.get(sessionId)!;
+    const detector = this.detectors.get(sessionId);
+    if (!detector) throw new Error(`No detector for session: ${sessionId}`);
     const preHash = await detector.captureHash(session.paneTarget);
     await this.sendPrompt(sessionId, prompt);
     const result = await detector.waitForSettled(session.paneTarget, { preHash, timeoutMs });

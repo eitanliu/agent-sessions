@@ -101,4 +101,25 @@ describe("SessionManager", () => {
     await p;
     expect(changes).toContain("launching->idle");
   });
+
+  it("sendAndWait returns output and emits settled", async () => {
+    const p = manager.createSession({ adapterId: "claude", workingDir: "/tmp" });
+    await vi.runAllTimersAsync();
+    const s = await p;
+
+    // 让 capturePane 返回 idle 内容（使 waitForSettled 快速结束）
+    vi.mocked(bridge.capturePane).mockResolvedValue({
+      content: "❯", lines: ["❯"], timestamp: Date.now(),
+    });
+
+    const settled: any[] = [];
+    manager.on("settled", (...args) => settled.push(args));
+
+    const waitP = manager.sendAndWait(s.id, "hello", 5000);
+    await vi.runAllTimersAsync();
+    const output = await waitP;
+
+    expect(typeof output).toBe("string");
+    expect(settled.length).toBeGreaterThan(0);
+  });
 });
