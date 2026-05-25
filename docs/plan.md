@@ -95,25 +95,23 @@ await execFileAsync(TMUX_BIN, args, { timeout: 10_000 })
 ```
 
 长文本注入（>200 字节）：写临时文件 → `tmux load-buffer <path> → paste-buffer -d`
-- Windows：`os.tmpdir()` 路径转为 MSYS2 格式（`C:\Temp\...` → `/c/Temp/...`）
+- Windows：`os.tmpdir()` 路径（来自 `TEMP` / `TMP` 环境变量）转为 MSYS2 格式
 - 短文本：`send-keys -l`（literal 模式）
 
 ### 2. Claude 启动参数（adapter.ts）
 
-**Windows PATH 自动注入**（claude.exe 不在 tmux 会话 PATH 中）：
+**Windows PATH 自动注入**（通过系统 `USERPROFILE` 环境变量，无需手动配置）：
 
 ```typescript
 if (process.platform === "win32") {
-  const binDir = process.env.CLAUDE_BIN_DIR;
-  const pathSetup = binDir
-    ? `export PATH="${binDir}:$PATH"`
-    : 'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
-  await bridge.runInPane(paneTarget, pathSetup);
+  const posixHome = (process.env.USERPROFILE ?? "")
+    .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+    .replace(/\\/g, "/");
+  await bridge.runInPane(paneTarget, `export PATH="${posixHome}/.local/bin:$PATH"`);
 }
 ```
 
-**环境变量：**
-- `CLAUDE_BIN_DIR`（可选）— claude.exe 目录的 POSIX 路径。未设置时自动通过 `cygpath` 推导 `$USERPROFILE/.local/bin`。
+**说明：** `USERPROFILE` 是 Windows 系统内置环境变量（如 `C:\Users\name`），Node.js 直接读取，无需额外配置。
 
 然后发送 `claude` 命令（可选 `--resume <sessionId>` 或 `--dangerously-skip-permissions`），等待 10s 初始化。
 
@@ -153,23 +151,21 @@ error:        [/^\s*Error:/m, /ENOENT|EACCES|EPERM/, /Connection refused/i, /API
 
 ## 运行与验证
 
+> **Windows/MSYS2 说明：** 运行前先将 Node.js 加入 PATH：
+> ```bash
+> export PATH="$(cygpath -u "$PROGRAMFILES")/nodejs:$PATH"
+> ```
+> 或将此行加入 `~/.bashrc` 永久生效。之后直接使用 `npm`、`node` 命令。
+
 ### 构建
 
 ```bash
-# Windows（MSYS2 bash）
-"/c/Program Files/nodejs/npm.cmd" run build
-
-# Linux / macOS
 npm run build
 ```
 
 ### 测试
 
 ```bash
-# Windows（需将 node 加入 PATH）
-PATH="/c/Program Files/nodejs:$PATH" "/c/Program Files/nodejs/npm.cmd" test
-
-# Linux / macOS
 npm test
 ```
 
@@ -178,10 +174,6 @@ npm test
 ### 启动
 
 ```bash
-# Windows（MSYS2 bash）
-"/c/Program Files/nodejs/node.exe" dist/index.js
-
-# Linux / macOS
 node dist/index.js
 ```
 

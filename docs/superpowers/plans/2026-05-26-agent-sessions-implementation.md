@@ -8,11 +8,11 @@
 
 **Tech Stack:** TypeScript 5.7，Node.js 25（ESM），vitest 3，chalk 5，仅用 node 内置模块（child_process、readline、crypto、fs/promises）
 
-**命令运行环境说明**（node/npm 不在 MSYS PATH，需用 PowerShell）：
-- 安装依赖：`& "C:\Program Files\nodejs\npm.cmd" install`
-- 构建：`& "C:\Program Files\nodejs\npm.cmd" run build`
-- 测试：`& "C:\Program Files\nodejs\npm.cmd" test`
-- git：`D:\DevSoft\Git\cmd\git.exe`
+**命令运行环境说明**（Windows/MSYS2：先执行 export PATH="$(cygpath -u "$PROGRAMFILES")/nodejs:$PATH"）：
+- 安装依赖：`npm install`
+- 构建：`npm run build`
+- 测试：`npm test`
+- git：`git`
 
 ---
 
@@ -120,7 +120,7 @@ src/__tests__/
 
 ```powershell
 cd D:\code\ai\agent-sessions
-& "C:\Program Files\nodejs\npm.cmd" install
+npm install
 ```
 
 期望：生成 `node_modules/`、`package-lock.json`，无报错。
@@ -128,8 +128,8 @@ cd D:\code\ai\agent-sessions
 - [ ] **Step 4: 提交**
 
 ```bash
-GIT="/d/DevSoft/Git/cmd/git.exe"
-cd /d/code/ai/agent-sessions
+GIT="$(command -v git)"
+cd "$PROJECT_DIR"
 "$GIT" add package.json tsconfig.json package-lock.json
 "$GIT" commit -m "chore: 初始化 TypeScript ESM 项目"
 ```
@@ -180,7 +180,7 @@ describe("getPlatform", () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "platform"
+npm test -- --reporter=verbose 2>&1 | Select-String "platform"
 ```
 
 期望：FAIL，`Cannot find module '../../tmux/platform.js'`
@@ -258,7 +258,7 @@ export class TmuxError extends Error {
 - [ ] **Step 5: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "platform|PASS|FAIL"
+npm test -- --reporter=verbose 2>&1 | Select-String "platform|PASS|FAIL"
 ```
 
 期望：platform 测试 PASS
@@ -369,7 +369,7 @@ describe("TmuxBridge", () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "bridge|PASS|FAIL" | head -20
+npm test -- --reporter=verbose 2>&1 | Select-String "bridge|PASS|FAIL" | head -20
 ```
 
 期望：FAIL，`Cannot find module '../../tmux/bridge.js'`
@@ -548,7 +548,7 @@ export class TmuxBridge {
 - [ ] **Step 4: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "bridge|platform|PASS|FAIL"
+npm test -- --reporter=verbose 2>&1 | Select-String "bridge|platform|PASS|FAIL"
 ```
 
 期望：全部 PASS
@@ -612,7 +612,7 @@ describe("AdapterRegistry", () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "registry|FAIL"
+npm test -- --reporter=verbose 2>&1 | Select-String "registry|FAIL"
 ```
 
 期望：FAIL，`Cannot find module '../../adapters/registry.js'`
@@ -678,7 +678,7 @@ export class AdapterRegistry {
 - [ ] **Step 5: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "registry|platform|bridge|PASS|FAIL"
+npm test -- --reporter=verbose 2>&1 | Select-String "registry|platform|bridge|PASS|FAIL"
 ```
 
 期望：全部 PASS
@@ -801,7 +801,7 @@ describe("ClaudeAdapter", () => {
 - [ ] **Step 3: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "adapter|FAIL" | head -5
+npm test -- --reporter=verbose 2>&1 | Select-String "adapter|FAIL" | head -5
 ```
 
 期望：FAIL，`Cannot find module '../../../adapters/claude/adapter.js'`
@@ -874,7 +874,7 @@ export class ClaudeAdapter implements AgentAdapter {
 - [ ] **Step 5: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -20
+npm test -- --reporter=verbose 2>&1 | tail -20
 ```
 
 期望：全部 PASS
@@ -1017,7 +1017,7 @@ describe("StateDetector.captureHash", () => {
 - [ ] **Step 3: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "state-detector|FAIL" | head -5
+npm test -- --reporter=verbose 2>&1 | Select-String "state-detector|FAIL" | head -5
 ```
 
 期望：FAIL，`Cannot find module '../../sessions/state-detector.js'`
@@ -1136,7 +1136,7 @@ export class StateDetector {
 - [ ] **Step 5: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -25
+npm test -- --reporter=verbose 2>&1 | tail -25
 ```
 
 期望：全部 PASS
@@ -1226,7 +1226,7 @@ describe("SessionManager", () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "manager|FAIL" | head -5
+npm test -- --reporter=verbose 2>&1 | Select-String "manager|FAIL" | head -5
 ```
 
 期望：FAIL，`Cannot find module '../../sessions/manager.js'`
@@ -1356,7 +1356,7 @@ export class SessionManager extends EventEmitter {
 - [ ] **Step 4: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -25
+npm test -- --reporter=verbose 2>&1 | tail -25
 ```
 
 期望：全部 PASS
@@ -1469,7 +1469,7 @@ describe("MessageRouter", () => {
 - [ ] **Step 3: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "router|FAIL" | head -5
+npm test -- --reporter=verbose 2>&1 | Select-String "router|FAIL" | head -5
 ```
 
 期望：FAIL，`Cannot find module '../../routing/router.js'`
@@ -1674,7 +1674,7 @@ export class SessionForwarder {
 - [ ] **Step 7: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -30
+npm test -- --reporter=verbose 2>&1 | tail -30
 ```
 
 期望：全部 PASS
@@ -1733,7 +1733,7 @@ describe("parseCommand", () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | Select-String "commands|FAIL" | head -5
+npm test -- --reporter=verbose 2>&1 | Select-String "commands|FAIL" | head -5
 ```
 
 期望：FAIL，`Cannot find module '../../repl/commands.js'`
@@ -1824,7 +1824,7 @@ export function clearLine(): void {
 - [ ] **Step 5: 运行测试验证通过**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -30
+npm test -- --reporter=verbose 2>&1 | tail -30
 ```
 
 期望：全部 PASS
@@ -2178,7 +2178,7 @@ repl.start();
 
 ```powershell
 cd D:\code\ai\agent-sessions
-& "C:\Program Files\nodejs\npm.cmd" run build 2>&1
+npm run build 2>&1
 ```
 
 期望：`dist/` 目录生成，无 TypeScript 错误
@@ -2186,7 +2186,7 @@ cd D:\code\ai\agent-sessions
 - [ ] **Step 3: 确认可执行**
 
 ```powershell
-& "C:\Program Files\nodejs\node.exe" dist/index.js --help 2>&1
+node dist/index.js --help 2>&1
 ```
 
 期望：启动提示或 REPL 初始化信息
@@ -2194,7 +2194,7 @@ cd D:\code\ai\agent-sessions
 - [ ] **Step 4: 运行全量测试**
 
 ```powershell
-& "C:\Program Files\nodejs\npm.cmd" test -- --reporter=verbose 2>&1 | tail -40
+npm test -- --reporter=verbose 2>&1 | tail -40
 ```
 
 期望：所有测试 PASS，0 failures
@@ -2214,18 +2214,18 @@ cd D:\code\ai\agent-sessions
 - [ ] **Step 1: 推送到 GitHub**
 
 ```bash
-GIT="/d/DevSoft/Git/cmd/git.exe"
-TOKEN=$(/mingw64/bin/gh auth token)
-"$GIT" push "https://eitanliu:${TOKEN}@github.com/eitanliu/agent-sessions.git" main
+GIT="$(command -v git)"
+TOKEN=$(gh auth token)
+"$GIT" push "https://$(gh api user --jq .login):${TOKEN}@github.com/$(gh api user --jq .login)/agent-sessions.git" main
 ```
 
 - [ ] **Step 2: 烟雾测试（需要 WSL + tmux + claude CLI 可用）**
 
 在 WSL 终端中：
 ```bash
-node /mnt/d/code/ai/agent-sessions/dist/index.js
+node dist/index.js
 # 然后执行:
-# /new /mnt/d/code/ai/agent-sessions
+# /new "$PROJECT_DIR"
 # /list         → 应显示 claude-0 launching → idle
 # hello         → 发送到 claude-0，状态变 active → idle
 # /read         → 显示 claude-0 输出

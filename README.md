@@ -6,6 +6,19 @@
 
 ---
 
+## 前置条件
+
+| 依赖 | 要求 | 说明 |
+|------|------|------|
+| Node.js | ≥ 22 | 需在 PATH 中可用 |
+| tmux | ≥ 3.x | **Windows：MSYS2 内置**（`$MSYS2_ROOT/usr/bin/tmux`，无需 WSL） |
+| Claude CLI | 最新版 | 默认安装在 `$USERPROFILE\.local\bin\` |
+| MSYS2 | 最新版 | Windows 用户必须；提供 bash、tmux、mintty |
+
+> **Linux / macOS：** 直接使用系统 tmux，无需 MSYS2。
+
+---
+
 ## 特性
 
 - **多窗口并发** — 在独立 tmux pane 中启动多个 Claude 实例，互不干扰
@@ -13,19 +26,6 @@
 - **会话间路由** — 将会话 A 的输出自动转发到会话 B 的输入，支持过滤与转换
 - **交互式 REPL** — 带颜色状态提示符，直接输入或使用 `/` 命令管理所有会话
 - **可扩展适配器** — 策略模式架构，预留 Codex / OpenCode 扩展位
-
----
-
-## 前置条件
-
-| 依赖 | 要求 | 说明 |
-|------|------|------|
-| Node.js | ≥ 22 | `C:\Program Files\nodejs\` |
-| tmux | ≥ 3.x | **Windows：MSYS2 内置**（`/usr/bin/tmux`，无需 WSL） |
-| Claude CLI | 最新版 | 安装在 `~/.local/bin/claude.exe` |
-| MSYS2 | 最新版 | Windows 用户必须；提供 bash、tmux、mintty |
-
-> **Linux / macOS：** 直接使用系统 tmux，无需 MSYS2。
 
 ---
 
@@ -38,9 +38,10 @@ npm install
 npm run build
 ```
 
-> **Windows / MSYS2 运行测试：** npm 不在 MSYS bash PATH 中，需指定完整路径：
+> **Windows / MSYS2：** 先将 Node.js 加入 PATH，之后直接使用 `npm`、`node`：
 > ```bash
-> PATH="/c/Program Files/nodejs:$PATH" "/c/Program Files/nodejs/npm.cmd" test
+> export PATH="$(cygpath -u "$PROGRAMFILES")/nodejs:$PATH"
+> # 建议加入 ~/.bashrc 永久生效
 > ```
 
 ---
@@ -48,11 +49,7 @@ npm run build
 ## 使用
 
 ```bash
-# Linux / macOS
 node dist/index.js
-
-# Windows（MSYS2 bash）
-"/c/Program Files/nodejs/node.exe" dist/index.js
 ```
 
 ### REPL 命令
@@ -77,13 +74,11 @@ node dist/index.js
 
 ### /attach 说明（Windows）
 
-`/attach <id>` 会输出 mintty 命令，在新终端窗口中查看对应的 tmux 会话：
+`/attach <id>` 输出 mintty 命令，在新终端窗口中查看对应 tmux 会话：
 
 ```
 mintty -e tmux attach -t as-claude-0
 ```
-
-在 MSYS2 bash 中直接运行该命令即可打开新窗口。
 
 ---
 
@@ -92,31 +87,41 @@ mintty -e tmux attach -t as-claude-0
 ```
 src/
 ├── tmux/
-│   ├── platform.ts     # 平台检测（windows/wsl/linux/macos）
-│   ├── types.ts        # TmuxSession, TmuxPane, CaptureResult, TmuxError
-│   └── bridge.ts       # TmuxBridge — 所有平台直接调用 tmux
+│   ├── platform.ts       # 平台检测（windows/wsl/linux/macos）
+│   ├── types.ts          # TmuxSession, TmuxPane, CaptureResult, TmuxError
+│   └── bridge.ts         # TmuxBridge — 统一调用 $TMUX_BIN
 ├── adapters/
-│   ├── base.ts         # AgentAdapter 接口、AgentPatterns、LaunchConfig
-│   ├── registry.ts     # AdapterRegistry
+│   ├── base.ts           # AgentAdapter 接口、AgentPatterns、LaunchConfig
+│   ├── registry.ts       # AdapterRegistry
 │   └── claude/
-│       ├── patterns.ts # Claude 专属正则模式
-│       └── adapter.ts  # ClaudeAdapter（含 Windows PATH 自动注入）
+│       ├── patterns.ts   # Claude 专属正则模式
+│       └── adapter.ts    # ClaudeAdapter（Windows 自动注入 $CLAUDE_BIN_DIR）
 ├── sessions/
-│   ├── types.ts        # AgentSession, SessionStatus, PaneAnalysis
+│   ├── types.ts          # AgentSession, SessionStatus, PaneAnalysis
 │   ├── state-detector.ts # 两阶段状态检测（hash 轮询 + 正则）
-│   └── manager.ts      # SessionManager（EventEmitter）
+│   └── manager.ts        # SessionManager（EventEmitter）
 ├── routing/
-│   ├── types.ts        # RouteRule, MessageEnvelope, RouterEvent
-│   ├── router.ts       # MessageRouter（规则 CRUD + 事件）
-│   └── forwarder.ts    # SessionForwarder（循环路由防护）
+│   ├── types.ts          # RouteRule, MessageEnvelope, RouterEvent
+│   ├── router.ts         # MessageRouter（规则 CRUD + 事件）
+│   └── forwarder.ts      # SessionForwarder（循环路由防护）
 └── repl/
-    ├── renderer.ts     # chalk 终端渲染
-    ├── commands.ts     # 命令解析
+    ├── renderer.ts       # chalk 终端渲染
+    ├── commands.ts       # 命令解析
     ├── session-picker.ts # 方向键会话选择器
-    └── repl.ts         # InteractiveREPL 主循环
+    └── repl.ts           # InteractiveREPL 主循环
 ```
 
 详见 [docs/plan.md](docs/plan.md)。
+
+---
+
+## 环境变量
+
+| 系统变量 | 说明 | 用途 |
+|----------|------|------|
+| `USERPROFILE` | Windows 用户目录（如 `C:\Users\name`） | 定位 `claude.exe`（`%USERPROFILE%\.local\bin\`） |
+| `PROGRAMFILES` | Windows Program Files 目录 | 定位 Node.js（`%PROGRAMFILES%\nodejs\`） |
+| `PATH` | 系统可执行文件搜索路径 | `tmux`、`git`、`gh` 均通过 PATH 解析 |
 
 ---
 
@@ -126,28 +131,22 @@ src/
 
 原计划使用 `wsl -e tmux` 路由，**实际改为 MSYS2 内置 tmux 直接调用**：
 
-- MSYS2 自带 tmux 3.6a（`/d/DevSoft/msys64/usr/bin/tmux.exe`）已在 Windows PATH 中
-- `TmuxBridge` 对所有平台统一使用 `execFile(TMUX_BIN, args)`，无需平台分支
+- MSYS2 自带 tmux（`$MSYS2_ROOT/usr/bin/tmux`）会随 MSYS2 安装自动进入 PATH
+- `TmuxBridge` 通过 `TMUX_BIN` 环境变量调用，无平台分支
 - 查看会话使用 mintty：`mintty -e tmux attach -t <session-name>`
-
-```bash
-# 可选：手动指定 tmux 可执行文件路径
-export TMUX_BIN="/usr/bin/tmux"
-node dist/index.js
-```
 
 ### claude.exe 路径
 
-Claude CLI 安装在 `%USERPROFILE%\.local\bin\claude.exe`，该路径默认不在 MSYS2 tmux 会话的 PATH 中。`ClaudeAdapter.launch()` 启动前自动注入 PATH：
+Claude CLI 默认安装在 `%USERPROFILE%\.local\bin\`，该路径不在 tmux 会话 PATH 中。`ClaudeAdapter.launch()` 启动前通过 `USERPROFILE` 系统环境变量自动注入：
 
-- 设置了 `CLAUDE_BIN_DIR` 环境变量时，直接使用该路径
-- 未设置时，自动通过 `cygpath` 推导 `$USERPROFILE/.local/bin`
-
-```bash
-# 可选：手动指定 claude.exe 所在目录（POSIX 格式）
-export CLAUDE_BIN_DIR="/c/Users/yourname/.local/bin"
-node dist/index.js
+```typescript
+const posixHome = process.env.USERPROFILE
+  .replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`)
+  .replace(/\\/g, "/");
+// → export PATH="/c/Users/name/.local/bin:$PATH"
 ```
+
+无需手动配置，直接使用系统已有的 `USERPROFILE` 变量即可。
 
 ---
 
