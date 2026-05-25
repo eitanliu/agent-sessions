@@ -25,7 +25,7 @@ export class InteractiveREPL {
       output: process.stdout,
       prompt: buildPrompt(undefined),
       terminal: true,
-      completer: (line: string) => completeLine(line),
+      completer: completeLine,
     });
   }
 
