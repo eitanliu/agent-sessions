@@ -1,6 +1,6 @@
 import * as readline from "node:readline";
 import chalk from "chalk";
-import { buildPrompt, clearLine, renderSessionTable, renderSuggestions, clearSuggestionLines, type SuggestionItem } from "./renderer.js";
+import { buildPrompt, clearLine, renderSessionTable } from "./renderer.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
 import { pickSession } from "./session-picker.js";
 import { completeLine, getMatches } from "./completer.js";
@@ -17,7 +17,7 @@ export class InteractiveREPL {
   private prevStatuses = new Map<string, string>();
   private suggestionLines = 0;
   private suggestionIdx = 0;
-  private suggestionItems: SuggestionItem[] = [];
+  private suggestionItems: { name: string; description: string; usage: string }[] = [];
   private keypressHandler: ((str: string, key: any) => void) | null = null;
   private overlayActive = false;
 
@@ -91,6 +91,10 @@ export class InteractiveREPL {
   }
 
   private refreshPrompt(): void {
+    // 清除叠加层，恢复基础 prompt
+    this.suggestionLines = 0;
+    this.suggestionItems = [];
+    this.suggestionIdx = 0;
     const session = this.currentSessionId
       ? this.manager.getSession(this.currentSessionId)
       : undefined;
@@ -308,78 +312,108 @@ export class InteractiveREPL {
 
       // Ctrl+L: 清屏
       if (key.ctrl && key.name === "l") {
+        this.rl.setPrompt(this.buildBasePrompt());
         this.suggestionLines = 0;
         process.stdout.write("[2J[H");
         this.rl.prompt(true);
         return;
       }
 
-      // Esc: 关闭建议叠加层
+      // Esc: 关闭建议
       if (key.name === "escape" && !key.ctrl) {
-        this.clearOverlay();
+        if (this.suggestionLines > 0) {
+          this.suggestionLines = 0;
+          this.suggestionItems = [];
+          this.rl.setPrompt(this.buildBasePrompt());
+          (this.rl as any)._refreshLine?.();
+        }
         return;
       }
 
-      // 建议层打开时，方向键 ↑↓ 导航（不消费事件，让 readline 也处理）
-      if (this.suggestionLines > 0) {
-        if (key.name === "up") {
-          this.clearOverlay();
-          this.suggestionIdx = Math.max(0, this.suggestionIdx - 1);
-          // 下一帧更新建议（readline 处理完 line buffer 更新后）
-          setImmediate(() => {
-            const l = ((this.rl as unknown) as { line: string }).line ?? "";
-            this.showOverlay(l);
-          });
-          return;
-        }
-        if (key.name === "down") {
-          this.clearOverlay();
-          this.suggestionIdx = Math.min(
-            this.suggestionItems.length - 1,
-            this.suggestionIdx + 1,
-          );
-          setImmediate(() => {
-            const l = ((this.rl as unknown) as { line: string }).line ?? "";
-            this.showOverlay(l);
-          });
-          return;
-        }
-        // Enter/Tab: 接受当前高亮建议（由 readline 的 completer 处理）
-        if (key.name === "return" || key.name === "enter") {
-          this.clearOverlay();
-          return;
-        }
+      // ↑↓ 导航建议
+      if (this.suggestionLines > 0 && key.name === "up") {
+        this.suggestionIdx = Math.max(0, this.suggestionIdx - 1);
+        setImmediate(() => this.updateOverlayPrompt((this.rl as any).line ?? ""));
+        return;
+      }
+      if (this.suggestionLines > 0 && key.name === "down") {
+        this.suggestionIdx = Math.min(this.suggestionItems.length - 1, this.suggestionIdx + 1);
+        setImmediate(() => this.updateOverlayPrompt((this.rl as any).line ?? ""));
+        return;
       }
 
-      // 实时更新：键入后用 setImmediate 确保 readline 已更新 line buffer
-      setImmediate(() => {
-        const currentLine = ((this.rl as unknown) as { line: string }).line ?? "";
-        if (currentLine.startsWith("/") && !currentLine.includes(" ") && currentLine.length > 1) {
-          this.clearOverlay();
-          this.suggestionIdx = 0;
-          this.showOverlay(currentLine);
-        } else if (this.suggestionLines > 0) {
-          this.clearOverlay();
-        }
-      });
+      // Tab: 接受高亮建议（填入选中命令）
+      if (key.name === "tab" && this.suggestionLines > 0 && this.suggestionItems[this.suggestionIdx]) {
+        const chosen = "/" + this.suggestionItems[this.suggestionIdx].name + " ";
+        // 清除建议，设置输入行
+        this.suggestionLines = 0;
+        this.suggestionItems = [];
+        this.rl.setPrompt(this.buildBasePrompt());
+        (this.rl as any).line = chosen;
+        (this.rl as any).cursor = chosen.length;
+        (this.rl as any)._refreshLine?.();
+        return;
+      }
+
+      // 每次按键后更新建议（等 readline 处理完 line buffer）
+      setImmediate(() => this.updateOverlayPrompt((this.rl as any).line ?? ""));
     };
 
     process.stdin.on("keypress", this.keypressHandler);
   }
 
-    private showOverlay(line: string): void {
-    const partial = line.startsWith("/") ? line.slice(1) : "";
-    this.suggestionItems = getMatches(partial);
-    if (this.suggestionItems.length === 0) return;
-    // clamp idx 防止导航后 items 数量变化时越界
-    this.suggestionIdx = Math.min(this.suggestionIdx, this.suggestionItems.length - 1);
-    this.suggestionLines = renderSuggestions(this.suggestionItems, this.suggestionIdx);
-  }
+  /** 根据当前输入行更新多行 prompt（建议列表 + 基础 prompt）*/
+  private updateOverlayPrompt(currentLine: string): void {
+    const base = this.buildBasePrompt();
 
-  private clearOverlay(): void {
+    if (currentLine.startsWith("/") && !currentLine.includes(" ") && currentLine.length > 0) {
+      const partial = currentLine.slice(1);
+      const matches = getMatches(partial);
+      this.suggestionItems = matches;
+      this.suggestionIdx = Math.min(this.suggestionIdx, Math.max(0, matches.length - 1));
+
+      if (matches.length > 0) {
+        const lines = matches.slice(0, 6).map((m, i) => {
+          const sel = i === this.suggestionIdx;
+          const prefix = sel ? chalk.cyan("❯ ") : "  ";
+          const name = sel ? chalk.bold.cyan("/" + m.name) : chalk.dim("/" + m.name);
+          const desc = chalk.dim(m.description);
+          return prefix + name.padEnd(sel ? 18 : 16) + desc;
+        });
+        const sep = chalk.dim("  " + "─".repeat(44));
+        const newPrompt = "\n" + lines.join("\n") + "\n" + sep + "\n" + base;
+        if (this.rl.getPrompt() !== newPrompt) {
+          this.rl.setPrompt(newPrompt);
+          (this.rl as any)._refreshLine?.();
+        }
+        this.suggestionLines = matches.length + 2;
+        return;
+      }
+    }
+
+    // 无建议：恢复基础 prompt
     if (this.suggestionLines > 0) {
-      clearSuggestionLines(this.suggestionLines);
       this.suggestionLines = 0;
+      this.suggestionItems = [];
+      this.rl.setPrompt(base);
+      (this.rl as any)._refreshLine?.();
     }
   }
+
+  private buildBasePrompt(): string {
+    const session = this.currentSessionId
+      ? this.manager.getSession(this.currentSessionId)
+      : undefined;
+    return buildPrompt(session);
+  }
+
+  private showOverlay(_line: string): void { /* replaced by updateOverlayPrompt */ }
+  private clearOverlay(): void {
+    this.suggestionLines = 0;
+    this.suggestionItems = [];
+    this.rl.setPrompt(this.buildBasePrompt());
+    (this.rl as any)._refreshLine?.();
+  }
+
 }
+
