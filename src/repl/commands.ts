@@ -2,7 +2,7 @@ import { COMMAND_DEFS } from "./completer.js";
 export { COMMAND_DEFS } from "./completer.js";
 
 export type CommandName =
-  | "help" | "list" | "new" | "kill" | "select"
+  | "help" | "list" | "new" | "kill" | "select" | "enter"
   | "send" | "read" | "status" | "wait"
   | "route" | "routes" | "unroute" | "attach" | "exit";
 

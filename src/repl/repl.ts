@@ -172,8 +172,41 @@ export class InteractiveREPL {
       }
 
       case "select": {
+        const id = cmd.args[0];
+        if (!id) {
+          // 无参数：弹出选择器，仅切换（不进入视图）
+          const sessions = this.manager.listSessions();
+          if (sessions.length === 0) {
+            console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
+            break;
+          }
+          this.overlayActive = true;
+          if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
+          const chosen = await pickSession(sessions);
+          if (this.keypressHandler) {
+            process.stdin.resume();
+            process.stdin.on("keypress", this.keypressHandler);
+          }
+          this.overlayActive = false;
+          if (chosen) {
+            this.currentSessionId = chosen.id;
+            console.log(chalk.green(`  ✓ 已切换到 ${chosen.id}`));
+          }
+        } else {
+          if (!this.manager.getSession(id)) {
+            console.log(chalk.red(`  找不到会话: ${id}`));
+            break;
+          }
+          this.currentSessionId = id;
+          console.log(chalk.green(`  ✓ 已切换到 ${id}`));
+        }
+        break;
+      }
+
+      case "enter": {
+        // 进入全屏会话交互视图
         const sessions = this.manager.listSessions();
-        const specifiedId = cmd.args[0];
+        const specifiedId = cmd.args[0] ?? this.currentSessionId;
 
         this.suggestionLines = 0;
         this.suggestionItems = [];
@@ -181,26 +214,28 @@ export class InteractiveREPL {
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
         if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
 
-        if (specifiedId) {
-          if (!this.manager.getSession(specifiedId)) {
+        let targetId: string | undefined = specifiedId ?? undefined;
+        if (!targetId) {
+          if (sessions.length === 0) {
+            console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
             this.overlayActive = false;
             this.startStatusPoll();
             if (this.keypressHandler) {
               process.stdin.resume();
               process.stdin.on("keypress", this.keypressHandler);
             }
-            console.log(chalk.red(`  找不到会话: ${specifiedId}`));
             break;
           }
-          this.currentSessionId = specifiedId;
-          await this.sessionView.enter(specifiedId);
-        } else if (sessions.length === 0) {
-          console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
-        } else {
           const chosen = await pickSession(sessions);
-          if (chosen) {
-            this.currentSessionId = chosen.id;
-            await this.sessionView.enter(chosen.id);
+          targetId = chosen?.id ?? undefined;
+        }
+
+        if (targetId) {
+          if (!this.manager.getSession(targetId)) {
+            console.log(chalk.red(`  找不到会话: ${targetId}`));
+          } else {
+            this.currentSessionId = targetId;
+            await this.sessionView.enter(targetId);
           }
         }
 

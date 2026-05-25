@@ -3,7 +3,7 @@ import { getMatches, completeLine, COMMAND_DEFS } from "../../repl/completer.js"
 
 describe("COMMAND_DEFS", () => {
   it("has 14 entries, each with name/description/usage", () => {
-    expect(COMMAND_DEFS.length).toBe(14);
+    expect(COMMAND_DEFS.length).toBe(15);
     for (const def of COMMAND_DEFS) {
       expect(def.name).toBeTruthy();
       expect(def.description).toBeTruthy();
