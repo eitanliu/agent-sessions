@@ -6,6 +6,11 @@ vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
 }));
 
+vi.mock("node:fs/promises", () => ({
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
+}));
+
 const mockExecFile = vi.mocked(
   (await import("node:child_process")).execFile
 );
@@ -79,5 +84,19 @@ describe("TmuxBridge", () => {
   it("throws TmuxError on exec failure", async () => {
     mockFail("no server running", 1);
     await expect(bridge.createSession("x")).rejects.toBeInstanceOf(TmuxError);
+  });
+
+  it("sendText uses load-buffer + paste-buffer for long text", async () => {
+    // 三次 exec 调用：load-buffer + paste-buffer
+    mockSuccess("");  // load-buffer
+    mockSuccess("");  // paste-buffer
+    const longText = "x".repeat(201);
+    await bridge.sendText("sess:0.0", longText);
+    // 第一次调用：应该是 load-buffer
+    expect(mockExecFile).toHaveBeenCalledTimes(2);
+    const firstArgs = mockExecFile.mock.calls[0][1] as string[];
+    expect(firstArgs).toContain("load-buffer");
+    const secondArgs = mockExecFile.mock.calls[1][1] as string[];
+    expect(secondArgs).toContain("paste-buffer");
   });
 });

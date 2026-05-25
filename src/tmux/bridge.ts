@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getPlatform } from "./platform.js";
 import type { TmuxSession, TmuxPane, CaptureResult, CaptureOptions, SendKeysOptions } from "./types.js";
 import { TmuxError } from "./types.js";
 
@@ -13,17 +12,12 @@ const SEP = "|||";
 
 export class TmuxBridge {
   private async exec(args: string[]): Promise<string> {
-    const plat = getPlatform();
-    const [cmd, fullArgs] =
-      plat === "windows"
-        ? ["wsl", ["-e", "tmux", ...args]]
-        : ["tmux", args];
+    // 所有平台直接调用 tmux（MSYS2 tmux.exe 在 Windows PATH 中）
     try {
-      const result = await execFileAsync(cmd, fullArgs, {
+      const result = await execFileAsync("tmux", args, {
         timeout: 10_000,
         maxBuffer: 1024 * 1024,
       });
-      // result may be a string (from promisify mock) or { stdout, stderr }
       const stdout = typeof result === "string" ? result : (result as any).stdout ?? "";
       return stdout;
     } catch (err: any) {
@@ -91,30 +85,17 @@ export class TmuxBridge {
       await this.sendKeys(target, text, { literal: true });
       return;
     }
-    const plat = getPlatform();
-    if (plat === "windows") {
-      const tmpPath = `/tmp/as-${randomUUID()}.txt`;
-      const { execFile: ef } = await import("node:child_process");
-      const efAsync = promisify(ef);
-      await efAsync("wsl", ["-e", "sh", "-c", `cat > ${tmpPath}`], {
-        input: text,
-        timeout: 5_000,
-      } as any);
-      try {
-        await this.exec(["load-buffer", tmpPath]);
-        await this.exec(["paste-buffer", "-t", target, "-d"]);
-      } finally {
-        await efAsync("wsl", ["-e", "rm", "-f", tmpPath]).catch(() => undefined);
-      }
-    } else {
-      const tmpPath = join(tmpdir(), `as-${randomUUID()}.txt`);
-      await writeFile(tmpPath, text, "utf8");
-      try {
-        await this.exec(["load-buffer", tmpPath]);
-        await this.exec(["paste-buffer", "-t", target, "-d"]);
-      } finally {
-        await unlink(tmpPath).catch(() => undefined);
-      }
+    // 写入临时文件（Windows: 转换为 MSYS2 路径格式）
+    const tmpPath = join(tmpdir(), `as-${randomUUID()}.txt`);
+    await writeFile(tmpPath, text, "utf8");
+    // 将 Windows 路径转为 MSYS2 路径（如 C:\Temp\file → /c/Temp/file）
+    const msysPath = tmpPath.replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`).replace(/\\/g, "/");
+    const bufPath = process.platform === "win32" ? msysPath : tmpPath;
+    try {
+      await this.exec(["load-buffer", bufPath]);
+      await this.exec(["paste-buffer", "-t", target, "-d"]);
+    } finally {
+      await unlink(tmpPath).catch(() => undefined);
     }
   }
 
@@ -132,7 +113,7 @@ export class TmuxBridge {
 
   async capturePane(target: string, opts?: CaptureOptions): Promise<CaptureResult> {
     const args = ["capture-pane", "-t", target, "-p"];
-    if (opts?.stripEscapeSequences) args.push("-e");
+    if (opts?.includeEscapeSequences) args.push("-e");
     if (opts?.startLine !== undefined) args.push("-S", String(opts.startLine));
     if (opts?.endLine !== undefined) args.push("-E", String(opts.endLine));
     const raw = await this.exec(args);

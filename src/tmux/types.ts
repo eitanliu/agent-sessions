@@ -25,7 +25,8 @@ export interface CaptureResult {
 export interface CaptureOptions {
   startLine?: number;
   endLine?: number;
-  stripEscapeSequences?: boolean;  // true = 剥离 ANSI 转义序列
+  /** true = 在输出中保留 ANSI 转义序列（tmux capture-pane -e） */
+  includeEscapeSequences?: boolean;
 }
 
 export interface SendKeysOptions {
