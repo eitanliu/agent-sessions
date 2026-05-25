@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "多窗口 CLI 会话管理工具",
   "type": "module",
-  "bin": { "agent-sessions": "./dist/index.js" },
+  "bin": {
+    "agent-sessions": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -11,12 +13,16 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "engines": { "node": ">=22.0.0" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
-    "chalk": "^5.4.1"
+    "chalk": "^5.4.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
