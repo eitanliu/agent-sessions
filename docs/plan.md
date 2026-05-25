@@ -2,22 +2,17 @@
 
 ## Context
 
-用户需要一个命令行工具，能够同时管理多个 Claude（及后续 Codex、OpenCode）的 CLI 进程窗口，支持会话间互相输入输出。当前阶段：从零创建，先实现 Claude 多窗口会话，架构上为后续扩展预留。
-
-工作目录：`D:\code\ai\agent-sessions`（空目录）
-
-参考项目（同级目录，已验证可用的实现）：
-- `D:\code\ai\Cliclaw\src\tmux\` — TmuxBridge、StateDetector、ClaudeCodeAdapter
-- `D:\code\ai\zylos-core\cli\lib\runtime\` — RuntimeAdapter 策略模式、tmux buffer 注入技术
+在 Windows（MSYS2 + tmux）环境下，同时管理多个 Claude CLI 进程窗口，支持会话间互相输入输出。Phase 1 已完成 Claude 多窗口会话，架构为后续扩展预留。
 
 ---
 
-## 技术选型
+## 技术选型（实际实现）
 
-- **语言**：TypeScript + Node.js ≥ 20，ESM 模块
-- **多窗口**：tmux（Windows 下通过 `wsl -e tmux` 路由，来自 Claude Code 官方实现）
+- **语言**：TypeScript 5.7 + Node.js ≥ 22，ESM 模块
+- **多窗口**：tmux — **所有平台直接调用**（Windows 使用 MSYS2 内置 tmux，不走 WSL）
+- **终端**：mintty（MSYS2 自带，用于 `/attach` 查看会话）
 - **依赖**：仅 `chalk`（终端颜色），其余全部用 Node.js 内置模块
-- **构建**：`tsc`，输出 `dist/`
+- **构建**：`tsc`，输出 `dist/`（不提交到 git）
 
 ---
 
@@ -31,16 +26,16 @@ D:\code\ai\agent-sessions\
     ├── index.ts                    # CLI 入口（bin: agent-sessions）
     ├── tmux/
     │   ├── platform.ts             # 平台检测（windows/wsl/linux/macos）
-    │   ├── bridge.ts               # TmuxBridge — execFile("wsl","-e","tmux") / execFile("tmux")
-    │   └── types.ts                # TmuxSession, TmuxPane, CaptureResult
+    │   ├── bridge.ts               # TmuxBridge — 所有平台统一 execFile("tmux", args)
+    │   └── types.ts                # TmuxSession, TmuxPane, CaptureResult, TmuxError
     ├── adapters/
     │   ├── base.ts                 # AgentAdapter 接口 + AgentPatterns 类型
     │   ├── registry.ts             # AdapterRegistry，支持 claude/codex/opencode 注册
     │   └── claude/
-    │       ├── adapter.ts          # ClaudeAdapter（launch/sendPrompt/abort/shutdown）
+    │       ├── adapter.ts          # ClaudeAdapter（含 Windows PATH 注入）
     │       └── patterns.ts         # Claude 专属正则（idle/active/waitingInput/error）
     ├── sessions/
-    │   ├── types.ts                # AgentSession, SessionStatus, SessionConfig
+    │   ├── types.ts                # AgentSession, SessionStatus, PaneAnalysis
     │   ├── state-detector.ts       # StateDetector — hash 轮询 + 正则匹配（无 LLM）
     │   └── manager.ts              # SessionManager — 生命周期管理，EventEmitter
     ├── routing/
@@ -77,83 +72,135 @@ interface AgentAdapter {
 type SessionStatus = "launching" | "idle" | "active" | "waiting_input" | "error" | "dead"
 ```
 
----
-
-## 核心实现要点
-
-### 1. Windows/WSL tmux 路由（bridge.ts）
+### CaptureOptions
 ```typescript
-// Windows: execFile("wsl", ["-e", "tmux", ...args])
-// 其他:    execFile("tmux", args)
-// 长文本注入（>200 字节）：写 WSL /tmp 临时文件 → load-buffer → paste-buffer -d
-// 短文本：send-keys -l（literal 模式）
+interface CaptureOptions {
+  startLine?: number;
+  endLine?: number;
+  includeEscapeSequences?: boolean;  // true = 保留 ANSI 转义序列（tmux -e 标志）
+}
 ```
 
-### 2. Claude 启动参数（adapter.ts）
-- 命令：`claude` 或 `claude --resume <sessionId>`
-- 可选：`--dangerously-skip-permissions`
-- 启动前清除 `CLAUDECODE`、`CLAUDE_CODE_ENTRYPOINT` 环境变量（防止嵌套启动检测）
-- 启动后等待 10s 再开始状态检测
+---
 
-### 3. 状态检测（state-detector.ts，轻量两层）
-- Phase 1：轮询 MD5 hash，等 hash 变化（agent 开始响应）
-- Phase 2：等内容稳定 ≥1500ms，再 quickCheck 正则匹配
-- error/waiting_input 快速退出（不等稳定）；active 且高置信度则继续等待
+## 核心实现要点（实际实现）
+
+### 1. TmuxBridge（bridge.ts）
+
+**所有平台直接调用 `tmux`**，无平台分支：
+
+```typescript
+// 统一调用（MSYS2 tmux.exe 在 Windows PATH 中）
+await execFileAsync("tmux", args, { timeout: 10_000 })
+```
+
+长文本注入（>200 字节）：写临时文件 → `tmux load-buffer <path> → paste-buffer -d`
+- Windows：`os.tmpdir()` 路径转为 MSYS2 格式（`C:\Temp\...` → `/c/Temp/...`）
+- 短文本：`send-keys -l`（literal 模式）
+
+### 2. Claude 启动参数（adapter.ts）
+
+**Windows PATH 自动注入**（claude.exe 在 `~/.local/bin/`，不在 tmux 会话 PATH 中）：
+
+```typescript
+// 在 launch() 中，启动 claude 前先注入 PATH
+if (process.platform === "win32") {
+  const pathSetup =
+    'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
+  await bridge.runInPane(paneTarget, pathSetup);
+  await sleep(500);
+}
+```
+
+然后发送 `claude` 命令（可选 `--resume <sessionId>` 或 `--dangerously-skip-permissions`），等待 10s 初始化。
+
+### 3. 状态检测（state-detector.ts，两阶段轻量检测）
+
+- **Phase 1**：轮询 MD5 hash，等 hash 变化（agent 开始响应）
+  - 循环前先捕获初始内容，避免 timeout 时返回空 content
+- **Phase 2**：等内容稳定 ≥1500ms，再 quickCheck 正则匹配
+  - error/waiting_input 一旦检测到立即退出（不等稳定）
+  - active 且高置信度则重置稳定计时，继续等待
+- timeout/abort 检查在 sleep 之前（避免多等一个轮询周期）
 
 ### 4. Claude patterns（patterns.ts）
+
 ```typescript
 idle:         [/❯\s*$/m]
-active:       [/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, /\.\.\.\s*$/m, /Reading|Writing|Editing|Running/i]
-waitingInput: [/\(y\/n\)/i, /\bAllow\b.*\?/i, /❯\s*\d+[.)]\s/]
-error:        [/^\s*Error:/m, /ENOENT|EACCES|EPERM/, /API Error/i]
+active:       [/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, /\.\.\.\s*$/m, /Reading|Writing|Editing|Running|Thinking/i]
+waitingInput: [/\(y\/n\)/i, /\bAllow\b.*\?/i, /❯\s*\d+[.)]\s/, /Do you want to/i]
+error:        [/^\s*Error:/m, /ENOENT|EACCES|EPERM/, /Connection refused/i, /API Error/i]
 ```
 
 ### 5. REPL 交互
+
 - 不以 `/` 开头的输入 → 发送到当前选中 session
 - 命令：`/new [workdir]`、`/list`、`/select <id>`、`/send <id> <prompt>`、
-  `/wait <id>`、`/read [id]`、`/route add <from> <to>`、`/routes`、`/unroute <id>`、
-  `/attach <id>`（tmux attach）、`/exit`
+  `/wait <id>`、`/read [id]`、`/status [id]`、`/route add <from> <to>`、`/routes`、
+  `/unroute <id>`、`/attach <id>`、`/kill <id>`、`/exit`
+- `/attach <id>`：**输出 mintty 命令**（不直接执行）：`mintty -e tmux attach -t as-<id>`
 - 提示符：`[claude-0 idle] > `（带颜色状态）
 - 后台每 2s 轮询状态，变化时在提示符上方打印通知
 
 ### 6. 循环路由防护（forwarder.ts）
-- `forward()` 维护调用链 Set，检测到 A→B→A 闭环时跳过并打印警告
+
+`forward(sourceId, output, chain = new Set())` — 递归转发时将已处理的 sourceId 加入 chain，检测到目标已在 chain 中时跳过并打印 WARNING。
 
 ---
 
-## 实现顺序
+## 运行与验证
 
-1. `package.json` + `tsconfig.json`（初始化项目）
-2. `src/tmux/platform.ts` + `src/tmux/types.ts`（平台检测）
-3. `src/tmux/bridge.ts`（TmuxBridge 核心，Windows/WSL 路由）
-4. `src/adapters/base.ts` + `src/adapters/registry.ts`（适配器框架）
-5. `src/adapters/claude/patterns.ts` + `src/adapters/claude/adapter.ts`（Claude 适配器）
-6. `src/sessions/types.ts` + `src/sessions/state-detector.ts`（状态检测）
-7. `src/sessions/manager.ts`（会话管理器）
-8. `src/routing/types.ts` + `src/routing/router.ts` + `src/routing/forwarder.ts`（路由）
-9. `src/repl/renderer.ts` + `src/repl/commands.ts` + `src/repl/session-picker.ts` + `src/repl/repl.ts`（REPL）
-10. `src/index.ts`（入口）
+### 构建
 
----
+```bash
+# Windows（MSYS2 bash）
+"/c/Program Files/nodejs/npm.cmd" run build
 
-## 验证方案
+# Linux / macOS
+npm run build
+```
 
-1. 构建：`npm run build`，确认无 TypeScript 报错
-2. 启动：`node dist/index.js`（或 `npx agent-sessions`）
-3. 功能测试：
-   - `/new` → 新建 claude-0 session，tmux 窗口出现
-   - `/list` → 显示 claude-0 状态 launching → idle
-   - 直接输入 `hello` → 发送到 claude-0，状态变 active → idle
-   - `/read` → 显示 claude-0 输出
-   - `/new` → 新建 claude-1，`/route add claude-0 claude-1` → claude-0 完成后自动转发到 claude-1
-   - `/attach claude-0` → tmux attach 到该 session 直观查看
-4. Windows/WSL 验证：确认 `wsl -e tmux` 可正常执行，临时文件路径正确
+### 测试
+
+```bash
+# Windows（需将 node 加入 PATH）
+PATH="/c/Program Files/nodejs:$PATH" "/c/Program Files/nodejs/npm.cmd" test
+
+# Linux / macOS
+npm test
+```
+
+测试结果（Phase 1 完成后）：**59 passed，2 skipped**（平台跳过测试正常）
+
+### 启动
+
+```bash
+# Windows（MSYS2 bash）
+"/c/Program Files/nodejs/node.exe" dist/index.js
+
+# Linux / macOS
+node dist/index.js
+```
+
+### 冒烟测试流程
+
+```
+/new                    → 新建 claude-0，tmux pane 中启动 claude
+/list                   → 显示 claude-0 状态 launching → idle
+hello                   → 发送到 claude-0，状态变 active → idle
+/read                   → 显示 claude-0 输出
+/new                    → 新建 claude-1
+/route add claude-0 claude-1  → claude-0 完成后自动转发到 claude-1
+/routes                 → 显示路由规则
+/attach claude-0        → 输出 mintty 命令，在新窗口查看
+/exit
+```
 
 ---
 
 ## 后续扩展规划（已预留架构）
 
-- `src/adapters/codex/adapter.ts` — Codex CLI（指令文件 `AGENTS.md`，不同 bypass 标志）
+- `src/adapters/codex/adapter.ts` — Codex CLI（指令文件 `AGENTS.md`，`--dangerously-bypass-approvals-and-sandbox`）
 - `src/adapters/opencode/adapter.ts` — OpenCode CLI
-- `src/web/` — Web 控制台（HTTP + WebSocket，参考 zylos-core web-console）
+- `src/web/` — Web 控制台（HTTP + WebSocket）
 - 持久化：引入 `better-sqlite3`，会话历史存储
