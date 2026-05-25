@@ -135,6 +135,12 @@ export class InteractiveREPL {
           console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
           break;
         }
+
+        // Step 1: 先显示会话表格
+        console.log("\n" + renderSessionTable(sessions) + "\n");
+        console.log(chalk.dim("  ↑↓ 方向键选择会话，Enter 进入交互视图，Esc 取消"));
+
+        // Step 2: 进入选择器（方向键导航 + Enter 确认选中）
         this.suggestionLines = 0;
         this.suggestionItems = [];
         this.overlayActive = true;
@@ -142,20 +148,12 @@ export class InteractiveREPL {
         if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
 
         // 循环：选择器 → 视图 → 返回选择器
-        let listDone = false;
-        while (!listDone) {
+        while (true) {
           const chosen = await pickSession(this.manager.listSessions());
-          if (!chosen) {
-            // Esc 在选择器 → 退出到主 REPL
-            listDone = true;
-            break;
-          }
+          if (!chosen) break; // Esc 在选择器 → 退出到主 REPL
           this.currentSessionId = chosen.id;
           const result = await this.sessionView.enter(chosen.id);
-          if (result === "exit") {
-            // Ctrl+C 在视图 → 退出到主 REPL
-            listDone = true;
-          }
+          if (result === "exit") break; // Ctrl+C 在视图 → 退出到主 REPL
           // result === "back" → 重新显示选择器
         }
 
