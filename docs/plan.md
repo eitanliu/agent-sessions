@@ -87,11 +87,10 @@ interface CaptureOptions {
 
 ### 1. TmuxBridge（bridge.ts）
 
-**所有平台直接调用 `tmux`**，支持 `TMUX_BIN` 环境变量覆盖：
+**所有平台直接调用 `tmux`**，通过 PATH 解析（无平台分支）：
 
 ```typescript
-const TMUX_BIN = process.env.TMUX_BIN ?? "tmux";
-await execFileAsync(TMUX_BIN, args, { timeout: 10_000 })
+await execFileAsync("tmux", args, { timeout: 10_000 })
 ```
 
 长文本注入（>200 字节）：写临时文件 → `tmux load-buffer <path> → paste-buffer -d`

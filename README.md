@@ -89,13 +89,13 @@ src/
 ├── tmux/
 │   ├── platform.ts       # 平台检测（windows/wsl/linux/macos）
 │   ├── types.ts          # TmuxSession, TmuxPane, CaptureResult, TmuxError
-│   └── bridge.ts         # TmuxBridge — 统一调用 $TMUX_BIN
+│   └── bridge.ts         # TmuxBridge — 直接调用 tmux（PATH 解析）
 ├── adapters/
 │   ├── base.ts           # AgentAdapter 接口、AgentPatterns、LaunchConfig
 │   ├── registry.ts       # AdapterRegistry
 │   └── claude/
 │       ├── patterns.ts   # Claude 专属正则模式
-│       └── adapter.ts    # ClaudeAdapter（Windows 自动注入 $CLAUDE_BIN_DIR）
+│       └── adapter.ts    # ClaudeAdapter（Windows 自动注入 $USERPROFILE/.local/bin）
 ├── sessions/
 │   ├── types.ts          # AgentSession, SessionStatus, PaneAnalysis
 │   ├── state-detector.ts # 两阶段状态检测（hash 轮询 + 正则）
@@ -132,7 +132,7 @@ src/
 原计划使用 `wsl -e tmux` 路由，**实际改为 MSYS2 内置 tmux 直接调用**：
 
 - MSYS2 自带 tmux（`$MSYS2_ROOT/usr/bin/tmux`）会随 MSYS2 安装自动进入 PATH
-- `TmuxBridge` 通过 `TMUX_BIN` 环境变量调用，无平台分支
+- `TmuxBridge` 直接调用 `tmux`，通过 PATH 解析，无平台分支
 - 查看会话使用 mintty：`mintty -e tmux attach -t <session-name>`
 
 ### claude.exe 路径
