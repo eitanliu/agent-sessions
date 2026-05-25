@@ -15,10 +15,13 @@ export class ClaudeAdapter implements AgentAdapter {
       await bridge.createSession(sessionName, { cwd: workingDir });
     }
     const paneTarget = TmuxBridgeClass.target(sessionName, 0, 0);
-    // Windows/MSYS2：claude.exe 在 ~/.local/bin，需先设置 PATH
+    // Windows/MSYS2：注入 claude.exe 所在目录到 PATH
+    // 优先使用 CLAUDE_BIN_DIR 环境变量，否则回退到 $USERPROFILE/.local/bin
     if (process.platform === "win32") {
-      const pathSetup =
-        'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
+      const binDir = process.env.CLAUDE_BIN_DIR;
+      const pathSetup = binDir
+        ? `export PATH="${binDir}:$PATH"`
+        : 'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
       await bridge.runInPane(paneTarget, pathSetup);
       await new Promise((r) => setTimeout(r, 500));
     }

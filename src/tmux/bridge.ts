@@ -10,11 +10,13 @@ import { TmuxError } from "./types.js";
 const execFileAsync = promisify(execFile);
 const SEP = "|||";
 
+// 允许通过 TMUX_BIN 环境变量覆盖 tmux 可执行文件路径
+const TMUX_BIN = process.env.TMUX_BIN ?? "tmux";
+
 export class TmuxBridge {
   private async exec(args: string[]): Promise<string> {
-    // 所有平台直接调用 tmux（MSYS2 tmux.exe 在 Windows PATH 中）
     try {
-      const result = await execFileAsync("tmux", args, {
+      const result = await execFileAsync(TMUX_BIN, args, {
         timeout: 10_000,
         maxBuffer: 1024 * 1024,
       });

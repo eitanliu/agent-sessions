@@ -87,11 +87,11 @@ interface CaptureOptions {
 
 ### 1. TmuxBridge（bridge.ts）
 
-**所有平台直接调用 `tmux`**，无平台分支：
+**所有平台直接调用 `tmux`**，支持 `TMUX_BIN` 环境变量覆盖：
 
 ```typescript
-// 统一调用（MSYS2 tmux.exe 在 Windows PATH 中）
-await execFileAsync("tmux", args, { timeout: 10_000 })
+const TMUX_BIN = process.env.TMUX_BIN ?? "tmux";
+await execFileAsync(TMUX_BIN, args, { timeout: 10_000 })
 ```
 
 长文本注入（>200 字节）：写临时文件 → `tmux load-buffer <path> → paste-buffer -d`
@@ -100,17 +100,20 @@ await execFileAsync("tmux", args, { timeout: 10_000 })
 
 ### 2. Claude 启动参数（adapter.ts）
 
-**Windows PATH 自动注入**（claude.exe 在 `~/.local/bin/`，不在 tmux 会话 PATH 中）：
+**Windows PATH 自动注入**（claude.exe 不在 tmux 会话 PATH 中）：
 
 ```typescript
-// 在 launch() 中，启动 claude 前先注入 PATH
 if (process.platform === "win32") {
-  const pathSetup =
-    'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
+  const binDir = process.env.CLAUDE_BIN_DIR;
+  const pathSetup = binDir
+    ? `export PATH="${binDir}:$PATH"`
+    : 'export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"';
   await bridge.runInPane(paneTarget, pathSetup);
-  await sleep(500);
 }
 ```
+
+**环境变量：**
+- `CLAUDE_BIN_DIR`（可选）— claude.exe 目录的 POSIX 路径。未设置时自动通过 `cygpath` 推导 `$USERPROFILE/.local/bin`。
 
 然后发送 `claude` 命令（可选 `--resume <sessionId>` 或 `--dangerously-skip-permissions`），等待 10s 初始化。
 

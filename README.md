@@ -127,15 +127,26 @@ src/
 原计划使用 `wsl -e tmux` 路由，**实际改为 MSYS2 内置 tmux 直接调用**：
 
 - MSYS2 自带 tmux 3.6a（`/d/DevSoft/msys64/usr/bin/tmux.exe`）已在 Windows PATH 中
-- `TmuxBridge` 对所有平台统一使用 `execFile("tmux", args)`，无需平台分支
+- `TmuxBridge` 对所有平台统一使用 `execFile(TMUX_BIN, args)`，无需平台分支
 - 查看会话使用 mintty：`mintty -e tmux attach -t <session-name>`
+
+```bash
+# 可选：手动指定 tmux 可执行文件路径
+export TMUX_BIN="/usr/bin/tmux"
+node dist/index.js
+```
 
 ### claude.exe 路径
 
-Claude CLI 安装在 `%USERPROFILE%\.local\bin\claude.exe`，该路径默认不在 MSYS2 tmux 会话的 PATH 中。`ClaudeAdapter.launch()` 在启动 claude 前自动注入：
+Claude CLI 安装在 `%USERPROFILE%\.local\bin\claude.exe`，该路径默认不在 MSYS2 tmux 会话的 PATH 中。`ClaudeAdapter.launch()` 启动前自动注入 PATH：
+
+- 设置了 `CLAUDE_BIN_DIR` 环境变量时，直接使用该路径
+- 未设置时，自动通过 `cygpath` 推导 `$USERPROFILE/.local/bin`
 
 ```bash
-export WIN_HOME="$(cygpath -u "$USERPROFILE")" && export PATH="$WIN_HOME/.local/bin:$PATH"
+# 可选：手动指定 claude.exe 所在目录（POSIX 格式）
+export CLAUDE_BIN_DIR="/c/Users/yourname/.local/bin"
+node dist/index.js
 ```
 
 ---
