@@ -152,7 +152,7 @@ export class InteractiveREPL {
           const chosen = await pickSession(this.manager.listSessions());
           if (!chosen) break; // Esc 在选择器 → 退出到主 REPL
           this.currentSessionId = chosen.id;
-          const result = await this.sessionView.enter(chosen.id, this.rl);
+          const result = this.sessionView.enter(chosen.id, this.rl);
           if (result === "exit") break; // Ctrl+C 在视图 → 退出到主 REPL
           // result === "back" → 重新显示选择器
         }
@@ -184,7 +184,7 @@ export class InteractiveREPL {
           if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
           if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
           while (true) {
-            const result = await this.sessionView.enter(newSessionId, this.rl);
+            const result = this.sessionView.enter(newSessionId, this.rl);
             if (result === "exit") break;
             // result === "back" → 进选择器让用户选择其他会话
             const sessions = this.manager.listSessions();
@@ -268,7 +268,7 @@ export class InteractiveREPL {
             console.log(chalk.red(`  找不到会话: ${targetId}`));
           } else {
             this.currentSessionId = targetId;
-            await this.sessionView.enter(targetId, this.rl);
+            this.sessionView.enter(targetId, this.rl);
           }
         }
 

@@ -1,63 +1,65 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
 import { SessionView } from "../../repl/session-view.js";
 import type { SessionManager } from "../../sessions/manager.js";
 import type { AgentSession } from "../../sessions/types.js";
+
+vi.mock("node:child_process", () => ({
+  spawnSync: vi.fn().mockReturnValue({ status: 0 }),
+}));
+
+const mockedSpawnSync = vi.mocked(spawnSync);
 
 function makeManager(sessions: Partial<AgentSession>[] = []): SessionManager {
   return {
     getSession: vi.fn((id: string) => sessions.find(s => s.id === id) as AgentSession | undefined),
     listSessions: vi.fn(() => sessions as AgentSession[]),
-    readOutput: vi.fn().mockResolvedValue("some output"),
-    sendAndWait: vi.fn().mockResolvedValue("response from claude"),
   } as unknown as SessionManager;
 }
 
 describe("SessionView", () => {
-  let view: SessionView;
   let manager: SessionManager;
 
   beforeEach(() => {
-    Object.defineProperty(process.stdout, "rows", { value: 24, configurable: true });
-    Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
     vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    vi.clearAllMocks();
+    mockedSpawnSync.mockReturnValue({ status: 0 } as any);
     manager = makeManager([{
       id: "claude-0", status: "idle", workingDir: "/tmp",
       adapterId: "claude", tmuxSession: "as-claude-0", paneTarget: "as-claude-0:0.0",
       createdAt: Date.now(), lastStatusChange: Date.now(), lastOutput: "",
     }]);
-    view = new SessionView(manager);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("formatStatusBar contains session id and Esc hint", () => {
-    const bar = (view as any).formatStatusBar("claude-0", "idle", "/tmp");
-    expect(bar).toContain("claude-0");
-    expect(bar).toContain("Esc");
+  it("enter returns 'back' for unknown session", () => {
+    const view = new SessionView(manager);
+    expect(view.enter("unknown-id")).toBe("back");
   });
 
-  it("formatInputLine contains > prefix and input text", () => {
-    const line = (view as any).formatInputLine("hello", "idle");
-    expect(line).toContain(">");
-    expect(line).toContain("hello");
+  it("enter calls tmux attach-session with correct session name", () => {
+    const view = new SessionView(manager);
+    view.enter("claude-0");
+    expect(mockedSpawnSync).toHaveBeenCalledWith(
+      "tmux",
+      ["attach-session", "-t", "as-claude-0"],
+      { stdio: "inherit" },
+    );
   });
 
-  it("appendOutputLine trims to maxOutputLines", () => {
-    const v = view as any;
-    v.maxOutputLines = 3;
-    v.outputLines = ["a", "b", "c"];
-    v.appendOutputLine("d");
-    expect(v.outputLines).toEqual(["b", "c", "d"]);
+  it("enter returns 'back' when tmux exits 0 (normal detach)", () => {
+    mockedSpawnSync.mockReturnValue({ status: 0 } as any);
+    const view = new SessionView(manager);
+    expect(view.enter("claude-0")).toBe("back");
   });
 
-  it("sendMessage calls manager.sendAndWait and appends response", async () => {
-    const v = view as any;
-    v.sessionId = "claude-0";
-    v.outputLines = [];
-    await v.handleSend("hi");
-    expect(manager.sendAndWait).toHaveBeenCalledWith("claude-0", "hi", 120000);
-    expect(v.outputLines.some((l: string) => l.includes("response from claude"))).toBe(true);
+  it("enter returns 'exit' when tmux exits non-zero", () => {
+    mockedSpawnSync.mockReturnValue({ status: 1 } as any);
+    const view = new SessionView(manager);
+    expect(view.enter("claude-0")).toBe("exit");
   });
 });
+
