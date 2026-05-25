@@ -8,22 +8,23 @@ export class SessionView {
 
   /**
    * 直接 attach 到 tmux 会话，用户与 Claude CLI 原生交互。
-   * 退出（tmux detach 或 Claude 退出）后返回 "back"。
+   * Ctrl+B D detach → 返回会话列表。
    */
   enter(sessionId: string, rl?: ReadlineInterface): "back" | "exit" {
     const session = this.manager.getSession(sessionId);
     if (!session) return "back";
 
+    // 在 tmux 状态栏固定显示返回提示，进入后随时可见
+    spawnSync("tmux", [
+      "set-option", "-t", session.tmuxSession,
+      "status-right",
+      "  #[fg=cyan]Ctrl+B D#[fg=default] 返回列表  ",
+    ]);
+    spawnSync("tmux", ["set-option", "-t", session.tmuxSession, "status", "on"]);
+
     // 暂停 readline，让 tmux attach 完全接管终端
     rl?.pause();
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-
-    // 清屏并提示
-    process.stdout.write("\x1b[2J\x1b[H");
-    process.stdout.write(
-      chalk.dim(`  进入会话 ${chalk.cyan(session.id)}（${session.tmuxSession}）\n`) +
-      chalk.dim("  Ctrl+B D 离开会话回到列表，直接关闭窗口退出\n\n")
-    );
 
     // 阻塞等待：tmux attach 接管整个终端，用户直接与 Claude 交互
     const result = spawnSync("tmux", ["attach-session", "-t", session.tmuxSession], {
