@@ -1,6 +1,7 @@
 export interface TmuxSession {
   name: string;
   windows: number;
+  /** Unix 秒时间戳（tmux session_created 格式变量） */
   created: number;
   attached: boolean;
 }
@@ -24,7 +25,7 @@ export interface CaptureResult {
 export interface CaptureOptions {
   startLine?: number;
   endLine?: number;
-  escapeSequences?: boolean;
+  stripEscapeSequences?: boolean;  // true = 剥离 ANSI 转义序列
 }
 
 export interface SendKeysOptions {
