@@ -2,6 +2,7 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { buildPrompt, clearLine, renderSessionTable, renderSuggestions, clearSuggestionLines, type SuggestionItem } from "./renderer.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
+import { pickSession } from "./session-picker.js";
 import { completeLine, getMatches } from "./completer.js";
 import type { SessionManager } from "../sessions/manager.js";
 import type { MessageRouter } from "../routing/router.js";
@@ -18,6 +19,7 @@ export class InteractiveREPL {
   private suggestionIdx = 0;
   private suggestionItems: SuggestionItem[] = [];
   private keypressHandler: ((str: string, key: any) => void) | null = null;
+  private overlayActive = false;
 
   constructor(
     private manager: SessionManager,
@@ -120,9 +122,27 @@ export class InteractiveREPL {
         console.log("\n" + HELP_TEXT + "\n");
         break;
 
-      case "list":
-        console.log("\n" + renderSessionTable(this.manager.listSessions()) + "\n");
+      case "list": {
+        const sessions = this.manager.listSessions();
+        if (sessions.length === 0) {
+          console.log(chalk.dim("  (暂无会话，使用 /new 新建)"));
+          break;
+        }
+        console.log("\n" + renderSessionTable(sessions) + "\n");
+        this.overlayActive = true;
+        if (this.keypressHandler) process.stdin.removeListener("keypress", this.keypressHandler);
+        const chosen = await pickSession(sessions);
+        if (this.keypressHandler) {
+          process.stdin.resume();
+          process.stdin.on("keypress", this.keypressHandler);
+        }
+        this.overlayActive = false;
+        if (chosen) {
+          this.currentSessionId = chosen.id;
+          console.log(chalk.green(`  ✓ 已切换到 ${chosen.id}`));
+        }
         break;
+      }
 
       case "new": {
         const workingDir = cmd.args[0] ?? process.cwd();
